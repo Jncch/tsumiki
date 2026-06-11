@@ -1,0 +1,40 @@
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# データ（業務データはコミットしない）
+data/
+!data/.gitkeep
+
+# ollama モデル保存先（プロジェクト内固定。CLAUDE.md §3 参照）
+var/
+
+# MLflow
+mlruns/
+mlartifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.mypy_cache/
+*.egg-info/
+build/
+dist/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Docker
+.docker/
+
+# claude
+.claude/

@@ -1,0 +1,44 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: tsumiki:dev
+    container_name: tsumiki-app
+    env_file:
+      - .env
+    environment:
+      # コンテナ内からホストの ollama に到達する（CLAUDE.md §3）
+      LLM_BASE_URL: http://host.docker.internal:11434/v1
+      MLFLOW_TRACKING_URI: file:/app/mlruns
+    extra_hosts:
+      # colima/macOS で host.docker.internal を解決させる
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # 開発時はソースをバインドマウント。依存変更時のみ再ビルド
+      - ./src:/app/src
+      - ./experiments:/app/experiments
+      - ./tests:/app/tests
+      - ./mlruns:/app/mlruns
+      - ./data:/app/data:ro
+    working_dir: /app
+    command: ["python", "-m", "tsumiki.smoke.japanese_check"]
+    profiles:
+      - default
+
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.18.0
+    container_name: tsumiki-mlflow
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=file:/mlruns
+      - --default-artifact-root=file:/mlruns
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./mlruns:/mlruns
+    profiles:
+      - mlflow
