@@ -36,5 +36,8 @@ dist/
 # Docker
 .docker/
 
-# claude
+# Claude
 .claude/
+
+# docs（直下の md ファイルは下書きとしてコミットしない。サブディレクトリ docs/experiments/ は対象外）
+.docs/*.md
