@@ -40,4 +40,5 @@ dist/
 .claude/
 
 # docs（直下の md ファイルは下書きとしてコミットしない。サブディレクトリ docs/experiments/ は対象外）
-.docs/*.md
+docs/*.md
+!docs/agent_reuse_verification_plan.md
