@@ -31,10 +31,34 @@ bash examples/nda/run.sh
 LLM_MODEL=hf.co/bartowski/Qwen2.5-14B-Instruct-GGUF:Q4_K_M bash examples/nda/run.sh
 ```
 
-クラウド GPT 系を使う場合:
+クラウド系を使う場合 (OpenAI 互換エンドポイント経由, すべて `LLM_PROVIDER=openai_compatible` のまま):
 
 ```bash
-LLM_BASE_URL=https://api.openai.com/v1 LLM_API_KEY=$OPENAI_API_KEY LLM_MODEL=gpt-4o bash examples/nda/run.sh
+# OpenAI 本家
+LLM_BASE_URL=https://api.openai.com/v1 LLM_API_KEY=$OPENAI_API_KEY LLM_MODEL=gpt-4o \
+  bash examples/nda/run.sh
+
+# Anthropic Claude (公式 OpenAI 互換エンドポイント)
+LLM_BASE_URL=https://api.anthropic.com/v1/ LLM_API_KEY=$ANTHROPIC_API_KEY LLM_MODEL=claude-opus-4-7 \
+  bash examples/nda/run.sh
+
+# Google Gemini (公式 OpenAI 互換エンドポイント)
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ \
+  LLM_API_KEY=$GOOGLE_AI_STUDIO_API_KEY LLM_MODEL=gemini-2.5-pro \
+  bash examples/nda/run.sh
+
+# OpenRouter (複数プロバイダ横断)
+LLM_BASE_URL=https://openrouter.ai/api/v1 LLM_API_KEY=$OPENROUTER_API_KEY \
+  LLM_MODEL=anthropic/claude-opus-4-7 \
+  bash examples/nda/run.sh
+```
+
+Azure OpenAI を使う場合は `--llm-provider azure_openai` + `AZURE_OPENAI_*` 環境変数:
+
+```bash
+source .env  # AZURE_OPENAI_* を set
+bash examples/nda/run.sh --llm-provider azure_openai --llm-model "$AZURE_OPENAI_DEPLOYMENT" \
+  --azure-api-version "$AZURE_OPENAI_API_VERSION"
 ```
 
 ### β 機能: `--use-compose`

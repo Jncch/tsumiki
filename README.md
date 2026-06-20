@@ -17,6 +17,24 @@
 - AgentSquare partial vendoring (modules / search / evolution / recombination / predictor) を `src/tsumiki/policy/agentsquare/` に取り込み.
   LLM 差し替えと benchmark_fn DI 化済 (詳細は [`docs/agentsquare_vendoring.md`](docs/agentsquare_vendoring.md)).
 
+## 対応 LLM プロバイダ
+
+`src/tsumiki/llm/client.py` は OpenAI / AzureOpenAI SDK を経由し, 設定層で
+プロバイダを切り替える (CLAUDE.md §3 プロバイダ非依存ルール). 詳細は
+[`.env.example`](.env.example) を参照.
+
+| プロバイダ | `LLM_PROVIDER` | `LLM_BASE_URL` | 備考 |
+| --- | --- | --- | --- |
+| ローカル ollama | `openai_compatible` (default) | `http://localhost:11434/v1` | Qwen2.5-14B 等. 開発・探索ループの主用途 |
+| OpenAI 本家 | `openai_compatible` | `https://api.openai.com/v1` | gpt-5 等 |
+| Azure OpenAI | `azure_openai` | (`AZURE_OPENAI_ENDPOINT`) | gpt-5.4 等. deployment 名で指定 |
+| Anthropic Claude | `openai_compatible` | `https://api.anthropic.com/v1/` | OpenAI 互換エンドポイント経由. claude-opus-4-7 等 |
+| Google Gemini | `openai_compatible` | `https://generativelanguage.googleapis.com/v1beta/openai/` | OpenAI 互換エンドポイント経由. gemini-2.5-pro 等 |
+| OpenRouter | `openai_compatible` | `https://openrouter.ai/api/v1` | 複数プロバイダの横断 |
+
+実走実績は **ollama Qwen2.5-14B** と **Azure gpt-5.4** で確認済 (Phase 8-6).
+他は構造確認 smoke のみで, ライブ実走は Phase 9+ で順次追加予定.
+
 関連 Zenn 記事:
 
 - Part 1〜2 (Phase 0〜4 + 5a〜5b): [https://zenn.dev/jnch/articles/68b0ede8c04aa8](https://zenn.dev/jnch/articles/68b0ede8c04aa8)

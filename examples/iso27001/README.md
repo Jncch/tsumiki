@@ -25,6 +25,25 @@ NDA (`examples/nda/`) と **同じ `src/tsumiki/runner/e2e.py`** を呼び出す
 bash examples/iso27001/run.sh
 ```
 
+クラウド系を使う場合 (NDA と同じく `LLM_PROVIDER=openai_compatible` + base_url 差し替えで動く):
+
+```bash
+# Anthropic Claude
+LLM_BASE_URL=https://api.anthropic.com/v1/ LLM_API_KEY=$ANTHROPIC_API_KEY \
+  LLM_MODEL=claude-opus-4-7 bash examples/iso27001/run.sh
+
+# Google Gemini
+LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/ \
+  LLM_API_KEY=$GOOGLE_AI_STUDIO_API_KEY LLM_MODEL=gemini-2.5-pro \
+  bash examples/iso27001/run.sh
+```
+
+注意: ISO27001 で Azure gpt-5.4 + `--use-compose` を実走した際,
+input parser が goal 文を `inputs=['target_document', 'control_requirements']` と解釈し
+lookup miss → generator verify FAIL で停止する事例が観測されている
+(詳細は [`docs/experiments/phase8_execution_2026-06-20.md`](../../docs/experiments/phase8_execution_2026-06-20.md) §3.4).
+強モデル + ISO27001 で実走する場合は β 制約の顕在化に注意.
+
 ### β 機能: `--use-compose`
 
 AgentSquare 由来の自動構成探索 (補助情報モード) を併走させる:
