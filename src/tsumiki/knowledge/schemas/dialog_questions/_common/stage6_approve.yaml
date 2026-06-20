@@ -1,0 +1,8 @@
+# Phase 9b 改訂 (2026-06-20): Stage 6 = 承認の質問群 (Q10).
+
+stage: approve
+title: 評価器の承認
+questions:
+  - id: approve
+    prompt: "Q10. 評価器を承認して流用蓄積に保存しますか? (yes/no)"
+    expected_type: yes_no

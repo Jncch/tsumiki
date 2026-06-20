@@ -1,0 +1,8 @@
+# Phase 9b 改訂 (2026-06-20): Stage 2 = 評価軸選択の質問群 (Q9).
+
+stage: dimensions
+title: 評価軸の選択
+questions:
+  - id: selected_dimensions
+    prompt: "Q9. 候補から評価軸 ID をカンマ区切りで選択 (例: 'char_limit,llm_judge_panel')"
+    expected_type: list

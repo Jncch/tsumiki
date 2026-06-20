@@ -10,6 +10,11 @@
 - 6 stage 構造のうち Phase 9b では stage 1 (TaskSpec 確定), stage 2 (評価軸選択),
   stage 6 (承認) を実装. stage 3-5 (評価器 draft + sample 判定) は Phase 9c/9d で.
 
+Phase 9b 改訂 (2026-06-20):
+- Q1〜Q10 の質問定義を `knowledge/schemas/dialog_questions/_common/*.yaml` に外部化.
+- dialog.py は loader 経由で質問を取得する形に変更.
+- ドメイン固有質問は `<domain>/<stage>*.yaml` で _common を override 可能.
+
 I/O 抽象化:
 - input_fn(prompt) -> user_answer  ←  builtin input() / scripted iterator
 - output_fn(message) -> None       ←  print() / list 蓄積
@@ -23,13 +28,17 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
 
 from tsumiki.goal.specs import (
     InputRole,
     KnowledgeSource,
     OutputSchema,
     TaskSpec,
+)
+from tsumiki.knowledge.schemas.dialog_questions import (
+    DialogQuestion,
+    DialogQuestionsBundle,
+    load_all_dialog_questions,
 )
 from tsumiki.knowledge.schemas.eval_dimensions import (
     EvalDimension,
@@ -43,111 +52,29 @@ JsonChatFn = Callable[[list[dict]], dict]
 TimestampFn = Callable[[], str]
 
 
+DEFAULT_QUESTIONS_ROOT = (
+    Path(__file__).parent.parent / "knowledge" / "schemas" / "dialog_questions"
+)
+DEFAULT_DIMENSIONS_ROOT = (
+    Path(__file__).parent.parent / "knowledge" / "schemas" / "eval_dimensions"
+)
+
+
 def _utc_iso() -> str:
     return datetime.now(UTC).isoformat()
 
 
-@dataclass(frozen=True)
-class DialogQuestion:
-    """1 つの構造化質問の仕様."""
-
-    id: str
-    prompt: str
-    expected_type: Literal["str", "literal", "list", "yes_no"]
-    allowed_values: tuple[str, ...] = ()
-    description: str = ""
-    llm_suggest: bool = False  # 回答が空のとき LLM にデフォルト案を求めるか
-
-
-# stage 1: TaskSpec 確定 (8 問)
-QUESTIONS_TASK_SPEC: tuple[DialogQuestion, ...] = (
-    DialogQuestion(
-        id="raw_goal",
-        prompt="Q1. 目的は何ですか? (自然言語で記述)",
-        expected_type="str",
-    ),
-    DialogQuestion(
-        id="task_class",
-        prompt="Q2. タスクの種類は? (detect/modify/detect_and_modify/extract/compare/generate/compose/summarize/transform/infer)",
-        expected_type="literal",
-        allowed_values=(
-            "detect",
-            "modify",
-            "detect_and_modify",
-            "extract",
-            "compare",
-            "generate",
-            "compose",
-            "summarize",
-            "transform",
-            "infer",
-        ),
-        llm_suggest=True,
-    ),
-    DialogQuestion(
-        id="output_kind",
-        prompt="Q3. 出力の自由度は? (closed=正解が一意 / semi_open=部分的 / open=自由度高い)",
-        expected_type="literal",
-        allowed_values=("closed", "semi_open", "open"),
-        llm_suggest=True,
-    ),
-    DialogQuestion(
-        id="input_modality",
-        prompt="Q4. 入力モダリティは? (doc=ドキュメント / free_text=自然言語 / structured=構造化 / mixed=混在 / none=入力なし)",
-        expected_type="literal",
-        allowed_values=("doc", "free_text", "structured", "mixed", "none"),
-        llm_suggest=True,
-    ),
-    DialogQuestion(
-        id="domain",
-        prompt="Q5. ドメイン名は? (例: marketing_post, meeting_minutes, nda 等)",
-        expected_type="str",
-        llm_suggest=True,
-    ),
-    DialogQuestion(
-        id="input_roles_csv",
-        prompt="Q6. 入力 role を name:role_kind 形式でカンマ区切り (例: 'target_document:target,focus_hint:focus'). 入力なしなら空 Enter",
-        expected_type="str",
-    ),
-    DialogQuestion(
-        id="outputs_csv",
-        prompt="Q7. 出力フィールドを name:schema_id 形式でカンマ区切り (例: 'post_text:instagram_post_v1')",
-        expected_type="str",
-    ),
-    DialogQuestion(
-        id="knowledge_catalog_path",
-        prompt="Q8. 知識カタログのパス (例: knowledge/skills/marketing_post). 既存知識を使わないなら空 Enter",
-        expected_type="str",
-    ),
-)
-
-
-# stage 2: 評価軸選択
-QUESTIONS_DIMENSIONS: tuple[DialogQuestion, ...] = (
-    DialogQuestion(
-        id="selected_dimensions",
-        prompt="Q9. 候補から評価軸 ID をカンマ区切りで選択 (例: 'char_limit,llm_judge_panel')",
-        expected_type="list",
-    ),
-)
-
-
-# stage 6: 承認
-QUESTIONS_APPROVE: tuple[DialogQuestion, ...] = (
-    DialogQuestion(
-        id="approve",
-        prompt="Q10. 評価器を承認して流用蓄積に保存しますか? (yes/no)",
-        expected_type="yes_no",
-    ),
-)
-
-
 @dataclass
 class DialogConfig:
-    """対話のパラメータ."""
+    """対話のパラメータ.
+
+    questions_root と dimensions_root は YAML テンプレのルート.
+    どちらも `_common/` を必須とし `<domain>/` で override 可能 (Phase 9b 改訂).
+    """
 
     log_dir: Path
-    dimensions_root: Path
+    dimensions_root: Path = field(default_factory=lambda: DEFAULT_DIMENSIONS_ROOT)
+    questions_root: Path = field(default_factory=lambda: DEFAULT_QUESTIONS_ROOT)
     timestamp_fn: TimestampFn = _utc_iso
     approve_by_prefix: str = "user_dialog"
 
@@ -219,7 +146,7 @@ def _llm_suggest(
                 "role": "system",
                 "content": (
                     "tsumiki 対話 REPL の補助 LLM. 質問に対する最も妥当な 1 つの選択肢を"
-                    " JSON で {\"suggestion\": \"<value>\"} 形式で返す. 選択肢が指定されて"
+                    ' JSON で {"suggestion": "<value>"} 形式で返す. 選択肢が指定されて'
                     "いる場合は必ずその中から選ぶ."
                 ),
             },
@@ -276,6 +203,11 @@ def _parse_outputs(csv: str) -> tuple[OutputSchema, ...]:
     return tuple(outs)
 
 
+def _load_questions(config: DialogConfig, domain: str | None = None) -> DialogQuestionsBundle:
+    """YAML から全 stage の質問を取得."""
+    return load_all_dialog_questions(config.questions_root, domain)
+
+
 def stage1_clarify_goal(
     state: DialogState,
     config: DialogConfig,
@@ -283,15 +215,17 @@ def stage1_clarify_goal(
     input_fn: InputFn,
     output_fn: OutputFn,
 ) -> DialogState:
-    """Q1〜Q8 で TaskSpec を確定."""
+    """Q1〜Q8 (stage1 YAML 定義分) で TaskSpec を確定."""
     output_fn("=== Stage 1: 目的と TaskSpec の確定 ===")
-    for q in QUESTIONS_TASK_SPEC:
+    # ドメインは Q5 で確定するため Stage 1 では _common のみロード.
+    bundle = _load_questions(config, domain=None)
+    for q in bundle.task_spec.questions:
         ans = _ask(q, state, json_chat_fn, input_fn, output_fn)
         state.answers[q.id] = ans
         if q.id == "raw_goal":
             state.raw_goal = ans
 
-    catalog_path = state.answers["knowledge_catalog_path"].strip()
+    catalog_path = state.answers.get("knowledge_catalog_path", "").strip()
     knowledge = KnowledgeSource(
         source_type="existing" if catalog_path else "extract",
         catalog_path=catalog_path or None,
@@ -307,13 +241,23 @@ def stage1_clarify_goal(
         input_modality=state.answers["input_modality"],  # type: ignore[arg-type]
     )
     state.task_spec = task_spec
-    _log(state, "stage1_clarify_goal", {"task_spec_summary": {
-        "task_class": task_spec.task_class,
-        "domain": task_spec.domain,
-        "output_kind": task_spec.output_kind,
-        "input_modality": task_spec.input_modality,
-    }}, config.timestamp_fn())
-    output_fn(f"  → TaskSpec 確定: {task_spec.domain} / {task_spec.task_class} / {task_spec.output_kind} / {task_spec.input_modality}")
+    _log(
+        state,
+        "stage1_clarify_goal",
+        {
+            "task_spec_summary": {
+                "task_class": task_spec.task_class,
+                "domain": task_spec.domain,
+                "output_kind": task_spec.output_kind,
+                "input_modality": task_spec.input_modality,
+            }
+        },
+        config.timestamp_fn(),
+    )
+    output_fn(
+        f"  → TaskSpec 確定: {task_spec.domain} / {task_spec.task_class} / "
+        f"{task_spec.output_kind} / {task_spec.input_modality}"
+    )
     return state
 
 
@@ -323,7 +267,7 @@ def stage2_select_dimensions(
     input_fn: InputFn,
     output_fn: OutputFn,
 ) -> DialogState:
-    """評価軸候補を提示 → ユーザー選択."""
+    """評価軸候補を提示 → ユーザー選択 (Q9 = stage2 YAML 定義)."""
     if state.task_spec is None:
         raise RuntimeError("stage1 を先に通してください")
     output_fn("=== Stage 2: 評価軸の選択 ===")
@@ -334,20 +278,28 @@ def stage2_select_dimensions(
     )
     state.candidate_dimensions = applicable
 
+    # ドメイン確定後に Q9 をドメイン固有テンプレで上書き可能.
+    bundle = _load_questions(config, domain=state.task_spec.domain)
+
     if not applicable:
         output_fn(
             f"  警告: task_class={state.task_spec.task_class}, output_kind={state.task_spec.output_kind} "
             f"に適用可能な評価軸が _common にも {state.task_spec.domain}/ にも見つかりません. "
-            f"Phase 9c で評価軸を自動生成する経路に進みます (現状は β)"
+            "Phase 9c で評価軸を自動生成する経路に進みます (現状は β)"
         )
-        _log(state, "stage2_select_dimensions", {"candidates": [], "selected": []}, config.timestamp_fn())
+        _log(
+            state,
+            "stage2_select_dimensions",
+            {"candidates": [], "selected": []},
+            config.timestamp_fn(),
+        )
         return state
 
     output_fn("  適用可能な評価軸:")
     for d in applicable:
         output_fn(f"    [{d.id}] {d.label} ({d.type}, source={d.source_domain})")
 
-    q = QUESTIONS_DIMENSIONS[0]
+    q = bundle.dimensions.questions[0]
     ans = input_fn(q.id).strip()
     selected_ids = [s.strip() for s in ans.split(",") if s.strip()]
     by_id = {d.id: d for d in applicable}
@@ -422,9 +374,11 @@ def stage6_approve(
     input_fn: InputFn,
     output_fn: OutputFn,
 ) -> DialogState:
-    """承認 → approved_by 設定."""
+    """承認 → approved_by 設定 (Q10 = stage6 YAML 定義)."""
     output_fn("=== Stage 6: 承認 ===")
-    q = QUESTIONS_APPROVE[0]
+    domain = state.task_spec.domain if state.task_spec else None
+    bundle = _load_questions(config, domain=domain)
+    q = bundle.approve.questions[0]
     ans = _ask(q, state, None, input_fn, output_fn)
     state.answers[q.id] = ans
     approved = ans.lower() in ("yes", "y")
@@ -471,15 +425,14 @@ def run_dialog(
 
 
 __all__ = [
+    "DEFAULT_DIMENSIONS_ROOT",
+    "DEFAULT_QUESTIONS_ROOT",
     "DialogConfig",
     "DialogQuestion",
     "DialogState",
     "InputFn",
     "JsonChatFn",
     "OutputFn",
-    "QUESTIONS_APPROVE",
-    "QUESTIONS_DIMENSIONS",
-    "QUESTIONS_TASK_SPEC",
     "persist_log",
     "run_dialog",
     "stage1_clarify_goal",

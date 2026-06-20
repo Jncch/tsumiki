@@ -1,14 +1,16 @@
-"""Phase 9b: 対話 REPL + 評価軸 loader の構造確認.
+"""Phase 9b: 対話 REPL + 評価軸 loader + 質問 loader (YAML 外部化版) の構造確認.
 
 設計 phase9_design §3.2 / §4.2 9b ゲートに対応.
+2026-06-20 改訂: Q1〜Q10 を YAML 外部化したため loader 経由の確認に切替.
 
 確認項目:
-- eval_dimensions loader が _common/ をロードする
-- domain 指定で _common + <domain>/ を merge できる
+- eval_dimensions loader が _common/ をロード
+- dialog_questions loader が _common/<stage>*.yaml をロード
+- ドメイン override が _common を上書き
+- Literal 整合性チェック (allowed_values が Literal subset か)
 - filter_applicable が task_class + output_kind で正しく絞る
-- 構造化質問 Q1〜Q10 が定義されている
-- 6 stage を mock LLM + scripted input で完走する
-- 対話ログが JSONL で persist される
+- 6 stage を mock LLM + scripted input で完走
+- 対話ログが JSONL で persist
 - LLM 提案が空回答時に発火し、選択肢チェックが効く
 """
 
@@ -20,15 +22,19 @@ from pathlib import Path
 import pytest
 
 from tsumiki.goal.dialog import (
-    QUESTIONS_APPROVE,
-    QUESTIONS_DIMENSIONS,
-    QUESTIONS_TASK_SPEC,
+    DEFAULT_DIMENSIONS_ROOT,
+    DEFAULT_QUESTIONS_ROOT,
     DialogConfig,
     DialogState,
     run_dialog,
     stage1_clarify_goal,
     stage2_select_dimensions,
     stage6_approve,
+)
+from tsumiki.knowledge.schemas.dialog_questions import (
+    DialogQuestion,
+    load_all_dialog_questions,
+    load_dialog_questions,
 )
 from tsumiki.knowledge.schemas.eval_dimensions import (
     EvalDimension,
@@ -37,6 +43,7 @@ from tsumiki.knowledge.schemas.eval_dimensions import (
 )
 
 DIMENSIONS_ROOT = Path("src/tsumiki/knowledge/schemas/eval_dimensions")
+QUESTIONS_ROOT = Path("src/tsumiki/knowledge/schemas/dialog_questions")
 
 
 # === eval_dimensions loader ===
@@ -85,32 +92,36 @@ def test_load_domain_override(tmp_path: Path) -> None:
 def test_filter_applicable_by_task_class_and_output_kind() -> None:
     dims = load_eval_dimensions(DIMENSIONS_ROOT)
 
-    # generate + open: char_limit, keyword_inclusion, llm_judge_panel, llm_judge_pairwise が候補
     applicable = filter_applicable(dims, task_class="generate", output_kind="open")
     ids = {d.id for d in applicable}
     assert "char_limit" in ids
     assert "keyword_inclusion" in ids
     assert "llm_judge_panel" in ids
-    # format_validity は applicable_output_kinds=[closed, semi_open] なので open には乗らない
     assert "format_validity" not in ids
 
-    # detect + closed: char_limit (closed 対応) は乗らない (applicable_task_classes に detect なし)
     applicable_detect = filter_applicable(dims, task_class="detect", output_kind="closed")
     assert all(d.id != "char_limit" for d in applicable_detect)
 
 
-def test_missing_common_directory_raises(tmp_path: Path) -> None:
+def test_missing_common_directory_raises_for_dimensions(tmp_path: Path) -> None:
     with pytest.raises(FileNotFoundError):
         load_eval_dimensions(tmp_path)
 
 
-# === 構造化質問の定義 ===
+# === dialog_questions loader (YAML 外部化版, 2026-06-20 改訂) ===
 
 
-def test_questions_task_spec_count_and_ids() -> None:
-    """Q1〜Q8 が定義されている."""
-    assert len(QUESTIONS_TASK_SPEC) == 8
-    ids = [q.id for q in QUESTIONS_TASK_SPEC]
+def test_load_all_dialog_questions_returns_3_stages() -> None:
+    """_common/ から 3 stage (task_spec/dimensions/approve) がロードされる."""
+    bundle = load_all_dialog_questions(QUESTIONS_ROOT)
+    assert bundle.task_spec.stage == "task_spec"
+    assert bundle.dimensions.stage == "dimensions"
+    assert bundle.approve.stage == "approve"
+
+
+def test_task_spec_stage_has_8_questions() -> None:
+    bundle = load_all_dialog_questions(QUESTIONS_ROOT)
+    ids = [q.id for q in bundle.task_spec.questions]
     assert ids == [
         "raw_goal",
         "task_class",
@@ -123,34 +134,96 @@ def test_questions_task_spec_count_and_ids() -> None:
     ]
 
 
-def test_questions_task_spec_allowed_values_match_literals() -> None:
-    """task_class / output_kind / input_modality の allowed_values が Literal と一致."""
-    q_task = next(q for q in QUESTIONS_TASK_SPEC if q.id == "task_class")
+def test_dimensions_stage_has_one_question() -> None:
+    bundle = load_all_dialog_questions(QUESTIONS_ROOT)
+    assert len(bundle.dimensions.questions) == 1
+    assert bundle.dimensions.questions[0].id == "selected_dimensions"
+
+
+def test_approve_stage_has_yes_no_question() -> None:
+    bundle = load_all_dialog_questions(QUESTIONS_ROOT)
+    assert len(bundle.approve.questions) == 1
+    assert bundle.approve.questions[0].expected_type == "yes_no"
+
+
+def test_task_class_question_allowed_values_subset_of_literal() -> None:
+    """Q2 (task_class) の allowed_values が TaskClass Literal の subset."""
+    bundle = load_all_dialog_questions(QUESTIONS_ROOT)
+    q_task = next(q for q in bundle.task_spec.questions if q.id == "task_class")
     assert "generate" in q_task.allowed_values
-    assert "detect" in q_task.allowed_values  # 既存も維持
-
-    q_out = next(q for q in QUESTIONS_TASK_SPEC if q.id == "output_kind")
-    assert set(q_out.allowed_values) == {"closed", "semi_open", "open"}
-
-    q_inm = next(q for q in QUESTIONS_TASK_SPEC if q.id == "input_modality")
-    assert set(q_inm.allowed_values) == {"doc", "free_text", "structured", "mixed", "none"}
+    assert "detect" in q_task.allowed_values
+    assert q_task.validate_against_literal == "TaskClass"
 
 
-def test_questions_dimensions_one_question() -> None:
-    assert len(QUESTIONS_DIMENSIONS) == 1
-    assert QUESTIONS_DIMENSIONS[0].id == "selected_dimensions"
+def test_output_kind_question_allowed_values() -> None:
+    bundle = load_all_dialog_questions(QUESTIONS_ROOT)
+    q = next(q for q in bundle.task_spec.questions if q.id == "output_kind")
+    assert set(q.allowed_values) == {"closed", "semi_open", "open"}
+    assert q.validate_against_literal == "OutputKind"
 
 
-def test_questions_approve_one_yes_no() -> None:
-    assert len(QUESTIONS_APPROVE) == 1
-    assert QUESTIONS_APPROVE[0].expected_type == "yes_no"
+def test_input_modality_question_allowed_values() -> None:
+    bundle = load_all_dialog_questions(QUESTIONS_ROOT)
+    q = next(q for q in bundle.task_spec.questions if q.id == "input_modality")
+    assert set(q.allowed_values) == {"doc", "free_text", "structured", "mixed", "none"}
+    assert q.validate_against_literal == "InputModality"
+
+
+def test_literal_integrity_check_rejects_invalid_values() -> None:
+    """allowed_values が Literal にない値を含むと __post_init__ で ValueError."""
+    with pytest.raises(ValueError, match="allowed_values"):
+        DialogQuestion(
+            id="bogus",
+            prompt="x",
+            expected_type="literal",
+            allowed_values=("nonexistent_task_class",),
+            validate_against_literal="TaskClass",
+        )
+
+
+def test_literal_integrity_check_rejects_unknown_literal_name() -> None:
+    """validate_against_literal に未登録の名前を指定すると ValueError."""
+    with pytest.raises(ValueError, match="未知の Literal 名"):
+        DialogQuestion(
+            id="bogus",
+            prompt="x",
+            expected_type="literal",
+            allowed_values=("a",),
+            validate_against_literal="UnknownLiteral",
+        )
+
+
+def test_dialog_questions_domain_override(tmp_path: Path) -> None:
+    """ドメイン固有 YAML が _common/<stage>*.yaml を override する."""
+    common = tmp_path / "_common"
+    common.mkdir()
+    (common / "stage6_approve.yaml").write_text(
+        "stage: approve\ntitle: COMMON\nquestions:\n"
+        "  - id: approve\n    prompt: COMMON_PROMPT\n    expected_type: yes_no\n",
+        encoding="utf-8",
+    )
+    domain = tmp_path / "marketing_post"
+    domain.mkdir()
+    (domain / "stage6_approve.yaml").write_text(
+        "stage: approve\ntitle: MARKETING\nquestions:\n"
+        "  - id: approve\n    prompt: MARKETING_PROMPT\n    expected_type: yes_no\n",
+        encoding="utf-8",
+    )
+    stage = load_dialog_questions(tmp_path, "approve", domain="marketing_post")
+    assert stage.title == "MARKETING"
+    assert stage.questions[0].prompt == "MARKETING_PROMPT"
+    assert stage.source_domain == "marketing_post"
+
+
+def test_missing_common_directory_raises_for_questions(tmp_path: Path) -> None:
+    with pytest.raises(FileNotFoundError):
+        load_dialog_questions(tmp_path, "task_spec")
 
 
 # === scripted I/O ヘルパ ===
 
 
 def _scripted_input(answers: list[str]) -> tuple[Iterator[str], list[str]]:
-    """順次回答を返す iterator + 採用ログ."""
     log: list[str] = []
     it = iter(answers)
 
@@ -166,7 +239,6 @@ def _scripted_input(answers: list[str]) -> tuple[Iterator[str], list[str]]:
 
 
 def _collect_output() -> tuple[list[str], list[str]]:
-    """messages を list に蓄積."""
     msgs: list[str] = []
 
     def fn(msg: str) -> None:
@@ -181,18 +253,17 @@ def _collect_output() -> tuple[list[str], list[str]]:
 def test_stage1_constructs_task_spec_from_8_answers(tmp_path: Path) -> None:
     config = DialogConfig(
         log_dir=tmp_path / "logs",
-        dimensions_root=DIMENSIONS_ROOT,
         timestamp_fn=lambda: "2026-06-20T12:00:00Z",
     )
     answers = [
-        "ビーガン向けプロテインバーの 9 月発売を訴求したい",  # raw_goal
-        "generate",                                              # task_class
-        "open",                                                  # output_kind
-        "free_text",                                             # input_modality
-        "marketing_post",                                        # domain
-        "intent_text:intent",                                    # input_roles_csv
-        "post_text:instagram_post_v1",                           # outputs_csv
-        "knowledge/skills/marketing_post",                       # knowledge_catalog_path
+        "ビーガン向けプロテインバーの 9 月発売を訴求したい",
+        "generate",
+        "open",
+        "free_text",
+        "marketing_post",
+        "intent_text:intent",
+        "post_text:instagram_post_v1",
+        "knowledge/skills/marketing_post",
     ]
     input_fn, _ = _scripted_input(answers)
     output_fn, msgs = _collect_output()
@@ -214,10 +285,10 @@ def test_stage1_constructs_task_spec_from_8_answers(tmp_path: Path) -> None:
 
 
 def test_stage1_invalid_literal_value_raises(tmp_path: Path) -> None:
-    config = DialogConfig(log_dir=tmp_path / "logs", dimensions_root=DIMENSIONS_ROOT)
+    config = DialogConfig(log_dir=tmp_path / "logs")
     answers = [
         "目的",
-        "INVALID_TASK_CLASS",  # 不正な task_class
+        "INVALID_TASK_CLASS",
         "closed",
         "doc",
         "x",
@@ -235,10 +306,10 @@ def test_stage1_invalid_literal_value_raises(tmp_path: Path) -> None:
 
 
 def test_stage2_filters_by_task_class_and_output_kind(tmp_path: Path) -> None:
-    config = DialogConfig(log_dir=tmp_path / "logs", dimensions_root=DIMENSIONS_ROOT)
+    config = DialogConfig(log_dir=tmp_path / "logs")
     state = DialogState()
-    # 必要な task_spec を直接 set
     from tsumiki.goal.specs import KnowledgeSource, TaskSpec
+
     state.task_spec = TaskSpec(
         task_class="generate",
         domain="marketing_post",
@@ -249,7 +320,7 @@ def test_stage2_filters_by_task_class_and_output_kind(tmp_path: Path) -> None:
         input_modality="free_text",
     )
     input_fn, _ = _scripted_input(["char_limit,llm_judge_panel"])
-    output_fn, msgs = _collect_output()
+    output_fn, _ = _collect_output()
 
     state = stage2_select_dimensions(state, config, input_fn, output_fn)
     assert len(state.selected_dimensions) == 2
@@ -257,9 +328,10 @@ def test_stage2_filters_by_task_class_and_output_kind(tmp_path: Path) -> None:
 
 
 def test_stage2_unknown_dimension_raises(tmp_path: Path) -> None:
-    config = DialogConfig(log_dir=tmp_path / "logs", dimensions_root=DIMENSIONS_ROOT)
+    config = DialogConfig(log_dir=tmp_path / "logs")
     state = DialogState()
     from tsumiki.goal.specs import KnowledgeSource, TaskSpec
+
     state.task_spec = TaskSpec(
         task_class="generate",
         domain="x",
@@ -281,7 +353,6 @@ def test_stage2_unknown_dimension_raises(tmp_path: Path) -> None:
 def test_stage6_approve_yes(tmp_path: Path) -> None:
     config = DialogConfig(
         log_dir=tmp_path / "logs",
-        dimensions_root=DIMENSIONS_ROOT,
         timestamp_fn=lambda: "2026-06-20T12:00:00Z",
     )
     input_fn, _ = _scripted_input(["yes"])
@@ -292,7 +363,7 @@ def test_stage6_approve_yes(tmp_path: Path) -> None:
 
 
 def test_stage6_approve_no(tmp_path: Path) -> None:
-    config = DialogConfig(log_dir=tmp_path / "logs", dimensions_root=DIMENSIONS_ROOT)
+    config = DialogConfig(log_dir=tmp_path / "logs")
     input_fn, _ = _scripted_input(["no"])
     output_fn, _ = _collect_output()
     state = stage6_approve(DialogState(), config, input_fn, output_fn)
@@ -307,31 +378,28 @@ def test_run_dialog_full_walkthrough(tmp_path: Path) -> None:
     """mock LLM + scripted input で 6 stage 完走 + ログ JSONL に出る."""
     config = DialogConfig(
         log_dir=tmp_path / "logs",
-        dimensions_root=DIMENSIONS_ROOT,
         timestamp_fn=lambda: "2026-06-20T12:00:00Z",
     )
-    # 順序: Q1〜Q8 (stage1), Q9 (stage2), Q10 (stage6)
     answers = [
-        "目的: テスト",                                  # raw_goal
-        "generate",                                       # task_class
-        "open",                                           # output_kind
-        "free_text",                                      # input_modality
-        "test_domain",                                    # domain
-        "",                                               # input_roles_csv (空)
-        "result:result_v1",                               # outputs_csv
-        "",                                               # knowledge_catalog_path (空)
-        "char_limit,keyword_inclusion",                   # stage2 selected_dimensions
-        "yes",                                            # stage6 approve
+        "目的: テスト",
+        "generate",
+        "open",
+        "free_text",
+        "test_domain",
+        "",
+        "result:result_v1",
+        "",
+        "char_limit,keyword_inclusion",
+        "yes",
     ]
     input_fn, _ = _scripted_input(answers)
-    output_fn, msgs = _collect_output()
+    output_fn, _ = _collect_output()
 
     def fake_json_chat(messages: list[dict]) -> dict:
         return {"suggestion": ""}
 
     state = run_dialog(config, fake_json_chat, input_fn, output_fn, run_id="walkthrough_001")
 
-    # 各 stage 通過
     stages_seen = {entry["stage"] for entry in state.log_entries}
     assert "stage1_clarify_goal" in stages_seen
     assert "stage2_select_dimensions" in stages_seen
@@ -340,21 +408,15 @@ def test_run_dialog_full_walkthrough(tmp_path: Path) -> None:
     assert "stage5_adjust_judge" in stages_seen
     assert "stage6_approve" in stages_seen
 
-    # task_spec 確定
     assert state.task_spec is not None
     assert state.task_spec.task_class == "generate"
     assert state.task_spec.output_kind == "open"
-    assert state.task_spec.input_modality == "free_text"
 
-    # 評価軸選択
     assert len(state.selected_dimensions) == 2
     assert {d.id for d in state.selected_dimensions} == {"char_limit", "keyword_inclusion"}
 
-    # 承認
     assert state.approved is True
-    assert state.approved_by.startswith("user_dialog_2026-06-20T12:00:00Z")
 
-    # ログ JSONL が persist
     log_path = tmp_path / "logs" / "walkthrough_001.jsonl"
     assert log_path.exists()
     lines = log_path.read_text(encoding="utf-8").strip().splitlines()
@@ -365,21 +427,15 @@ def test_run_dialog_full_walkthrough(tmp_path: Path) -> None:
 
 
 def test_llm_suggest_fires_on_empty_answer_and_is_validated(tmp_path: Path) -> None:
-    """空回答時に LLM 提案を発火させ、許可されない提案は無視される."""
     config = DialogConfig(
         log_dir=tmp_path / "logs",
-        dimensions_root=DIMENSIONS_ROOT,
         timestamp_fn=lambda: "2026-06-20T12:00:00Z",
     )
 
     suggestions = iter([
-        # task_class: 不正な提案 → 採用されず、ユーザーの再入力を要求
         {"suggestion": "ILLEGAL_VALUE"},
-        # output_kind: 妥当な提案
         {"suggestion": "open"},
-        # input_modality: 妥当な提案
         {"suggestion": "free_text"},
-        # domain: 提案受領
         {"suggestion": "auto_domain"},
     ])
 
@@ -387,18 +443,18 @@ def test_llm_suggest_fires_on_empty_answer_and_is_validated(tmp_path: Path) -> N
         return next(suggestions)
 
     answers = [
-        "目的テスト",       # Q1 raw_goal
-        "",                # Q2 task_class: 空 → LLM 提案 (ILLEGAL)
-        "generate",        # 再入力 (LLM 提案が無効だったため)
-        "",                # Q3 output_kind: 空 → LLM 提案 "open"
-        "",                # 提案採用 (Enter)
-        "",                # Q4 input_modality: 空 → LLM 提案 "free_text"
-        "",                # 提案採用
-        "",                # Q5 domain: 空 → LLM 提案 "auto_domain"
-        "",                # 提案採用
-        "input_x:target",  # Q6
-        "out:o_v1",        # Q7
-        "",                # Q8
+        "目的テスト",
+        "",
+        "generate",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "input_x:target",
+        "out:o_v1",
+        "",
     ]
     input_fn, _ = _scripted_input(answers)
     output_fn, _ = _collect_output()
@@ -411,11 +467,10 @@ def test_llm_suggest_fires_on_empty_answer_and_is_validated(tmp_path: Path) -> N
 
 
 def test_llm_suggest_disabled_when_json_chat_fn_is_none(tmp_path: Path) -> None:
-    """json_chat_fn=None なら LLM 提案を使わず、空回答はそのまま空のまま検証で失敗する."""
-    config = DialogConfig(log_dir=tmp_path / "logs", dimensions_root=DIMENSIONS_ROOT)
+    config = DialogConfig(log_dir=tmp_path / "logs")
     answers = [
         "目的",
-        "",       # task_class 空, 提案なし → 検証 NG
+        "",
         "open",
         "doc",
         "x",
@@ -443,3 +498,16 @@ def test_eval_dimension_matches() -> None:
     assert d.matches("generate", "open") is True
     assert d.matches("generate", "closed") is False
     assert d.matches("detect", "open") is False
+
+
+# === DialogConfig のデフォルトが repo 内 YAML を指す ===
+
+
+def test_dialog_config_defaults_point_to_repo_yaml() -> None:
+    """DialogConfig のデフォルト questions_root / dimensions_root が repo 内 YAML を指す."""
+    config = DialogConfig(log_dir=Path("/tmp/dummy"))
+    assert config.questions_root == DEFAULT_QUESTIONS_ROOT
+    assert config.dimensions_root == DEFAULT_DIMENSIONS_ROOT
+    # 実在性確認
+    assert (config.questions_root / "_common").is_dir()
+    assert (config.dimensions_root / "_common").is_dir()

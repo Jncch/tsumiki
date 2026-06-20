@@ -1,0 +1,66 @@
+# Phase 9b 改訂 (2026-06-20): Stage 1 = TaskSpec 確定の質問群 (Q1〜Q8).
+# tsumiki.knowledge.schemas.dialog_questions.load_dialog_questions が読む.
+# validate_against_literal でランタイム整合性チェック.
+
+stage: task_spec
+title: TaskSpec 確定
+questions:
+  - id: raw_goal
+    prompt: "Q1. 目的は何ですか? (自然言語で記述)"
+    expected_type: str
+
+  - id: task_class
+    prompt: "Q2. タスクの種類は? (detect/modify/detect_and_modify/extract/compare/generate/compose/summarize/transform/infer)"
+    expected_type: literal
+    allowed_values:
+      - detect
+      - modify
+      - detect_and_modify
+      - extract
+      - compare
+      - generate
+      - compose
+      - summarize
+      - transform
+      - infer
+    validate_against_literal: TaskClass
+    llm_suggest: true
+
+  - id: output_kind
+    prompt: "Q3. 出力の自由度は? (closed=正解が一意 / semi_open=部分的 / open=自由度高い)"
+    expected_type: literal
+    allowed_values:
+      - closed
+      - semi_open
+      - open
+    validate_against_literal: OutputKind
+    llm_suggest: true
+
+  - id: input_modality
+    prompt: "Q4. 入力モダリティは? (doc=ドキュメント / free_text=自然言語 / structured=構造化 / mixed=混在 / none=入力なし)"
+    expected_type: literal
+    allowed_values:
+      - doc
+      - free_text
+      - structured
+      - mixed
+      - none
+    validate_against_literal: InputModality
+    llm_suggest: true
+
+  - id: domain
+    prompt: "Q5. ドメイン名は? (例: marketing_post, meeting_minutes, nda 等)"
+    expected_type: str
+    llm_suggest: true
+
+  - id: input_roles_csv
+    prompt: "Q6. 入力 role を name:role_kind 形式でカンマ区切り (例: 'target_document:target,focus_hint:focus'). 入力なしなら空 Enter"
+    expected_type: str
+
+  - id: outputs_csv
+    prompt: "Q7. 出力フィールドを name:schema_id 形式でカンマ区切り (例: 'post_text:instagram_post_v1')"
+    expected_type: str
+
+  - id: knowledge_catalog_path
+    prompt: "Q8. 知識カタログのパス (例: knowledge/skills/marketing_post). 既存知識を使わないなら空 Enter"
+    expected_type: str
