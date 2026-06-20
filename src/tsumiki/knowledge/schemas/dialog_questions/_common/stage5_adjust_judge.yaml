@@ -1,0 +1,20 @@
+# Phase 9d (2026-06-21): Stage 5 = judge プロンプト調整ループの静的 Q.
+
+stage: stage5
+title: judge プロンプト調整
+questions:
+  # Q15: 不一致を修正するか
+  - id: adjust_request
+    prompt: "Q15. 判定不一致がありました. 軸の criteria を修正しますか? (yes=修正 / no=このまま進む)"
+    expected_type: yes_no
+
+  # Q16: 修正対象の軸 ID リスト
+  - id: dimensions_to_adjust
+    prompt: "Q16. 修正したい軸 ID をカンマ区切り (例: 'llm_judge_panel'). 全軸対象なら 'all'"
+    expected_type: list
+
+  # Q17 (動的展開): 各軸の修正後 criteria を確認 (LLM 提案 → ユーザー承認/編集)
+  - id: criteria_revision
+    prompt: "Q17. 新しい criteria (空 Enter で LLM 提案を採用)"
+    expected_type: str
+    description: 軸ごとに 1 回呼ばれる. criteria_revision__<dimension_id> として保存

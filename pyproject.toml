@@ -50,6 +50,10 @@ select = ["E", "F", "I", "B", "UP"]
 # Phase 9c: 評価器コード生成は文字列リテラルでの組み立てが主体で長行が発生.
 "src/tsumiki/eval/core/dialog_generator.py" = ["E501"]
 "tests/test_phase9c_dialog_generator.py" = ["E501"]
+# Phase 9d: sample 判定 / judge 調整も dataclass 構築で自然に長行になる.
+"src/tsumiki/eval/core/sample_judgment.py" = ["E501"]
+"src/tsumiki/eval/core/judge_adjuster.py" = ["E501"]
+"tests/test_phase9d_sample_judgment.py" = ["E501"]
 
 [tool.pyright]
 include = ["src", "tests", "experiments"]

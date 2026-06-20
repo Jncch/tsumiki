@@ -1,0 +1,11 @@
+# Phase 9d (2026-06-21): Stage 4 = サンプル提示 + 判定一致確認の静的 Q.
+# 各サンプルへのユーザー判定は Q14 を N 回繰り返す動的展開で扱う (sample_id をプレフィックス).
+
+stage: stage4
+title: サンプル判定一致確認
+questions:
+  # Q14 (動的展開): 各サンプルについて合格/不合格を聞く
+  - id: user_passed
+    prompt: "Q14. このサンプルは合格と判定しますか? (yes/no)"
+    expected_type: yes_no
+    description: 各サンプルごとに聞く. user_passed__<sample_id> として answers に保存される

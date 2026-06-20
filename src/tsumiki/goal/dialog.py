@@ -37,6 +37,19 @@ from tsumiki.eval.core.dialog_generator import (
     extract_dimension_parameters,
     resolve_weights,
 )
+from tsumiki.eval.core.judge_adjuster import (
+    apply_criteria_revisions,
+    collect_judge_dimension_ids,
+    suggest_criteria_revision,
+)
+from tsumiki.eval.core.sample_judgment import (
+    Disagreement,
+    Sample,
+    UserJudgment,
+    compute_disagreements,
+    generate_samples,
+    judge_samples_with_draft,
+)
 from tsumiki.goal.specs import (
     InputRole,
     KnowledgeSource,
@@ -86,6 +99,9 @@ class DialogConfig:
     questions_root: Path = field(default_factory=lambda: DEFAULT_QUESTIONS_ROOT)
     timestamp_fn: TimestampFn = _utc_iso
     approve_by_prefix: str = "user_dialog"
+    # Phase 9d で追加: Stage 4 で生成するサンプル数 / Stage 5 の最大反復数.
+    sample_count: int = 4
+    max_judge_adjust_rounds: int = 2
 
 
 @dataclass
@@ -433,6 +449,36 @@ def stage3_draft_evaluator(
     return state
 
 
+def _ask_user_judgments_for_samples(
+    samples: tuple[Sample, ...],
+    state: DialogState,
+    config: DialogConfig,
+    input_fn: InputFn,
+    output_fn: OutputFn,
+) -> tuple[UserJudgment, ...]:
+    """各サンプルに対し Q14 を繰り返して UserJudgment を集める."""
+    stage4 = load_dialog_questions(config.questions_root, "stage4")
+    q_user = next(q for q in stage4.questions if q.id == "user_passed")
+    user_judgments: list[UserJudgment] = []
+    for sample in samples:
+        output_fn(f"  [{sample.id}] {sample.output[:200]}")
+        # Q ID をサンプル別にすることでログ重複を回避
+        per_sample_q = DialogQuestion(
+            id=f"{q_user.id}__{sample.id}",
+            prompt=q_user.prompt,
+            expected_type=q_user.expected_type,
+            allowed_values=q_user.allowed_values,
+            description=q_user.description,
+            llm_suggest=q_user.llm_suggest,
+            validate_against_literal=q_user.validate_against_literal,
+        )
+        ans = _ask(per_sample_q, state, None, input_fn, output_fn)
+        state.answers[per_sample_q.id] = ans
+        passed = ans.lower() in ("yes", "y")
+        user_judgments.append(UserJudgment(sample_id=sample.id, passed=passed))
+    return tuple(user_judgments)
+
+
 def stage4_sample_judgment(
     state: DialogState,
     config: DialogConfig,
@@ -440,9 +486,95 @@ def stage4_sample_judgment(
     input_fn: InputFn,
     output_fn: OutputFn,
 ) -> DialogState:
-    """サンプル提示 + 判定一致確認. Phase 9d で本実装."""
-    output_fn("=== Stage 4: サンプル判定一致確認 (Phase 9d で本実装) ===")
-    _log(state, "stage4_sample_judgment", {"deferred": "phase9d"}, config.timestamp_fn())
+    """サンプル提示 + 判定一致確認 (Phase 9d 本実装).
+
+    1. ドラフトから N 件のサンプルを LLM で生成 (json_chat_fn 必要)
+    2. system 判定 (deterministic 軸のみ) を計算
+    3. ユーザーに Q14 で各サンプルの判定を聞く
+    4. 不一致を state.sample_judgments に記録
+    """
+    if state.task_spec is None or state.eval_spec_draft is None:
+        output_fn("=== Stage 4: サンプル判定 (前提未充足のためスキップ) ===")
+        return state
+
+    output_fn("=== Stage 4: サンプル提示 + 判定一致確認 ===")
+
+    # 1. サンプル生成 (LLM 不在ならスキップ)
+    if json_chat_fn is None:
+        output_fn("  (json_chat_fn が無いためサンプル生成をスキップ)")
+        _log(
+            state,
+            "stage4_sample_judgment",
+            {"skipped": "no_json_chat_fn"},
+            config.timestamp_fn(),
+        )
+        return state
+
+    samples = generate_samples(
+        state.task_spec, config.sample_count, json_chat_fn
+    )
+    if not samples:
+        output_fn("  警告: サンプル生成に失敗. Stage 4 をスキップ")
+        _log(
+            state,
+            "stage4_sample_judgment",
+            {"skipped": "generate_samples_failed"},
+            config.timestamp_fn(),
+        )
+        return state
+
+    # 2. system 判定
+    dim_specs = {d.id: d for d in state.selected_dimensions}
+    system_judgments = judge_samples_with_draft(samples, state.eval_spec_draft, dim_specs)
+
+    output_fn(f"  {len(samples)} 件のサンプルを生成・採点しました:")
+    for sj in system_judgments:
+        verdict = "PASS" if sj.passed else "FAIL"
+        pending = f" (未確定軸: {list(sj.pending_dim_ids)})" if sj.pending_dim_ids else ""
+        output_fn(f"    [{sj.sample_id}] system={verdict} score={sj.score:.3f}{pending}")
+
+    # 3. ユーザー判定
+    user_judgments = _ask_user_judgments_for_samples(
+        samples, state, config, input_fn, output_fn
+    )
+
+    # 4. 不一致集計
+    disagreements = compute_disagreements(system_judgments, user_judgments)
+    state.sample_judgments.append({
+        "samples": [{"id": s.id, "output": s.output} for s in samples],
+        "system_judgments": [
+            {
+                "sample_id": sj.sample_id,
+                "passed": sj.passed,
+                "score": sj.score,
+                "per_dim_scores": sj.per_dim_scores,
+                "pending_dim_ids": list(sj.pending_dim_ids),
+            }
+            for sj in system_judgments
+        ],
+        "user_judgments": [
+            {"sample_id": uj.sample_id, "passed": uj.passed} for uj in user_judgments
+        ],
+        "disagreements": [
+            {
+                "sample_id": d.sample_id,
+                "system_passed": d.system_passed,
+                "user_passed": d.user_passed,
+                "pending_dim_ids": list(d.pending_dim_ids),
+            }
+            for d in disagreements
+        ],
+    })
+    output_fn(f"  → 不一致 {len(disagreements)} 件")
+    _log(
+        state,
+        "stage4_sample_judgment",
+        {
+            "sample_count": len(samples),
+            "disagreement_count": len(disagreements),
+        },
+        config.timestamp_fn(),
+    )
     return state
 
 
@@ -453,9 +585,131 @@ def stage5_adjust_judge(
     input_fn: InputFn,
     output_fn: OutputFn,
 ) -> DialogState:
-    """judge プロンプト調整ループ. Phase 9d で本実装."""
-    output_fn("=== Stage 5: judge 調整 (Phase 9d で本実装) ===")
-    _log(state, "stage5_adjust_judge", {"deferred": "phase9d"}, config.timestamp_fn())
+    """judge プロンプト調整ループ (Phase 9d 本実装).
+
+    1. Stage 4 で記録された不一致を確認
+    2. 不一致あり + LLM judge 軸ありなら Q15 で修正するか聞く
+    3. yes なら Q16 で対象軸を選び、各軸の新しい criteria を Q17 で取得
+    4. apply_criteria_revisions でドラフト更新
+    最大 config.max_judge_adjust_rounds 回まで.
+
+    本フェーズでは「1 回だけ修正案を適用する」までを実装. ループは Phase 9e で
+    Stage 4 ↔ Stage 5 を組み合わせる際に runner 側で制御する.
+    """
+    if state.eval_spec_draft is None or not state.sample_judgments:
+        output_fn("=== Stage 5: judge 調整 (前提未充足のためスキップ) ===")
+        _log(
+            state,
+            "stage5_adjust_judge",
+            {"skipped": "no_draft_or_no_sample_judgments"},
+            config.timestamp_fn(),
+        )
+        return state
+
+    last_round = state.sample_judgments[-1]
+    disagreements: tuple[Disagreement, ...] = tuple(
+        Disagreement(
+            sample_id=d["sample_id"],
+            system_passed=d["system_passed"],
+            user_passed=d["user_passed"],
+            pending_dim_ids=tuple(d["pending_dim_ids"]),
+        )
+        for d in last_round.get("disagreements", [])
+    )
+    if not disagreements:
+        output_fn("=== Stage 5: judge 調整 (不一致なし、スキップ) ===")
+        _log(
+            state,
+            "stage5_adjust_judge",
+            {"skipped": "no_disagreements"},
+            config.timestamp_fn(),
+        )
+        return state
+
+    dim_specs = {d.id: d for d in state.selected_dimensions}
+    judge_dim_ids = collect_judge_dimension_ids(state.eval_spec_draft, dim_specs)
+    if not judge_dim_ids:
+        output_fn("=== Stage 5: judge 調整 (LLM judge 軸なし、スキップ) ===")
+        _log(
+            state,
+            "stage5_adjust_judge",
+            {"skipped": "no_judge_dimensions"},
+            config.timestamp_fn(),
+        )
+        return state
+
+    output_fn(f"=== Stage 5: judge プロンプト調整 ({len(disagreements)} 件の不一致) ===")
+    stage5 = load_dialog_questions(config.questions_root, "stage5")
+    q_request = next(q for q in stage5.questions if q.id == "adjust_request")
+    q_targets = next(q for q in stage5.questions if q.id == "dimensions_to_adjust")
+    q_revision = next(q for q in stage5.questions if q.id == "criteria_revision")
+
+    # Q15
+    req_ans = _ask(q_request, state, None, input_fn, output_fn)
+    state.answers[q_request.id] = req_ans
+    if req_ans.lower() not in ("yes", "y"):
+        output_fn("  → 修正なし")
+        _log(state, "stage5_adjust_judge", {"adjusted": False}, config.timestamp_fn())
+        return state
+
+    # Q16
+    output_fn(f"  LLM judge 軸: {list(judge_dim_ids)}")
+    target_ans = input_fn(q_targets.id).strip()
+    state.answers[q_targets.id] = target_ans
+    if target_ans.lower() == "all":
+        target_ids = list(judge_dim_ids)
+    else:
+        target_ids = [s.strip() for s in target_ans.split(",") if s.strip()]
+    unknown = [t for t in target_ids if t not in judge_dim_ids]
+    if unknown:
+        raise ValueError(f"未知の judge 軸 ID: {unknown}")
+
+    # Q17: 各軸ごとの criteria 更新
+    revisions: dict[str, str] = {}
+    current_criteria_map = {
+        dp.dimension_id: dp.judge_criteria for dp in state.eval_spec_draft.dimensions
+    }
+    for tid in target_ids:
+        spec = dim_specs[tid]
+        current_c = current_criteria_map.get(tid, "")
+        output_fn(f"  --- 軸 [{tid}] の修正 (現在: {current_c!r}) ---")
+        per_dim_q = DialogQuestion(
+            id=f"{q_revision.id}__{tid}",
+            prompt=q_revision.prompt,
+            expected_type=q_revision.expected_type,
+            allowed_values=q_revision.allowed_values,
+            description=q_revision.description,
+        )
+        output_fn(per_dim_q.prompt)
+        ans = input_fn(per_dim_q.id).strip()
+        state.answers[per_dim_q.id] = ans
+        if not ans and json_chat_fn is not None:
+            suggested = suggest_criteria_revision(
+                spec, current_c, disagreements, state.raw_goal, json_chat_fn
+            )
+            if suggested:
+                output_fn(f"    [LLM 提案] {suggested} (Enter で採用、または編集)")
+                edit = input_fn(per_dim_q.id + "__after_suggest").strip()
+                ans = edit or suggested
+        if ans:
+            revisions[tid] = ans
+
+    # ドラフト更新
+    if revisions:
+        new_draft = apply_criteria_revisions(
+            state.eval_spec_draft, dim_specs, revisions
+        )
+        state.eval_spec_draft = new_draft
+        output_fn(f"  → {len(revisions)} 軸の criteria を更新しました")
+    else:
+        output_fn("  → 修正なし (回答が全て空)")
+
+    _log(
+        state,
+        "stage5_adjust_judge",
+        {"adjusted": True, "revised_dimensions": list(revisions.keys())},
+        config.timestamp_fn(),
+    )
     return state
 
 
