@@ -83,6 +83,64 @@ Phase 5a-3 由来のガードが効き, n_samples=40 で算定. zerobase は全 
 `benchmark_fn` が trivial (reuse success_rate を返すだけ) なので, 探索は「動作確認」相当.
 本物の探索評価は Phase 9+ で実装する.
 
+### 3.4 Azure OpenAI 追加実走 (gpt-5.4, 2026-06-20 17:10〜)
+
+ローカル ollama 再現の後, クラウド強モデルで paired_diff がどう変わるかを確認するため
+Azure OpenAI (deployment=gpt-5.4, api_version=2024-10-01-preview) で追加実走した.
+
+#### NDA (Azure)
+
+| 指標 | ollama Qwen2.5-14B | Azure gpt-5.4 | 差 |
+| --- | --- | --- | --- |
+| reuse success_rate | 0.550 (40/40) | **0.800 (45/45)** | +0.250 |
+| zerobase success_rate | 0.289 (45/45) | **0.778 (45/45)** | +0.489 |
+| paired_diff | +0.261 | **+0.022** | -0.239 |
+| compose selected_modules | `{planning: PlanningEnhanced, ...}` | **`{planning: PlanningStateAwareALFWorld, ...}`** | 異なる |
+| synth 実時間 | 1352.9s | 142.0s | 約 1/10 |
+
+| MLflow run | run_id |
+| --- | --- |
+| Azure NDA reuse | `ede369e61bb8436ba8696037c0f36520` |
+| Azure NDA zerobase | `251ef5eae4d245aa80e6cf18a7e577d6` |
+| experiment | `examples_nda_azure` (984434637058882068) |
+
+観察:
+
+- **強モデルでは reuse 効果が大幅縮小** (+0.261 → +0.022). 前回 Zenn 記事の弱モデル
+  +0.212 → 強モデル +0.074 の縮小と同方向。Phase 5c E2E では Phase 2 検出ベースラインより
+  さらに縮んだ. 「強モデルは知識層なしでもタスクをこなせる」が再確認された.
+- **`zerobase success_rate` が大幅増** (0.289 → 0.778). 強モデルは zerobase 時点ですでに
+  問題条項の修正タスクをかなりの精度でこなせる. 一方で reuse でさらに上積みが +0.022 出るのは
+  「知識層が完全にゼロ寄与ではない」とも読める (ただし誤差範囲との切り分けは Phase 9+ 3-seed CI 待ち).
+- **compose 探索結果がモデルで変わる** (`PlanningEnhanced` → `PlanningStateAwareALFWorld`).
+  benchmark_fn は trivial なので探索パスの差は alfworld 由来 archives の偏りに由来するが,
+  モデル能力で異なる構成が選ばれる現象は記録に値する.
+- **skip 0 件**. ollama で散発した `llama-server chat error 500` は強モデル + Azure API では
+  未観測. 安定性の差.
+
+#### ISO27001 (Azure) — β 制約顕在化で停止
+
+```
+ValueError: generated evaluator failed verify:
+  typical_success: coverage_of_findings_in_modified_doc_ratio mismatch: expected=1.0, got=0.0
+  typical_success: format_preservation_score mismatch: expected=1.0, got=0.5
+  typical_success: overall_pass mismatch: expected=1.0, got=0.0
+```
+
+原因: ISO27001 の goal 文 `'ISO27001 の運用文書をチェックして統制不備を是正したい'` を
+gpt-5.4 の input parser が `inputs=['target_document', 'control_requirements']` と解釈.
+ollama 時の `inputs=['target_document']` と input_signature が不一致になり, 評価器の
+lookup が miss → generator パスに fallback → 再生成された評価器コードが
+`typical_success` ケースの verify で失敗 → 実走停止.
+
+これは Phase 7-bonus-2 (input_signature schemas 固定) と Phase 7-bonus-1
+(generator 主 metric 整合) で扱う予定だった β 制約が, 強モデル + 別ドメインで
+実際に顕在化した形. NDA 時は parser が同じ inputs=['target_document'] を返したため
+lookup hit で済んだが, 文言で揺れることが実証された.
+
+→ Phase 9+ の最優先項目に「input_signature schemas 固定 + parser 安定化」を昇格.
+ISO27001 Azure の paired_diff 数値は今回取得できなかった.
+
 ## 4. 観察
 
 - **paired_diff は両ドメインで基準値と完全一致 (差 0.000)**.
@@ -99,12 +157,15 @@ Phase 5a-3 由来のガードが効き, n_samples=40 で算定. zerobase は全 
 
 ## 5. gate 判定
 
-| ドメイン | gate (±0.05) | 備考 |
-| --- | --- | --- |
-| NDA | **OK** (差 0.000) | Phase 5c +0.261 と完全一致 |
-| ISO27001 | **OK** (差 0.000) | Phase 6 +0.029 と完全一致 |
+| ドメイン × モデル | paired_diff | 基準 | gate (±0.05) | 備考 |
+| --- | --- | --- | --- | --- |
+| NDA × ollama Qwen2.5-14B | +0.261 | +0.261 | **OK** (差 0.000) | Phase 5c と完全一致 |
+| ISO27001 × ollama Qwen2.5-14B | +0.029 | +0.029 | **OK** (差 0.000) | Phase 6 と完全一致 |
+| NDA × Azure gpt-5.4 | +0.022 | +0.261 | FAIL (差 -0.239) | 強モデルで縮小、想定通り (前回 Zenn 結論と同方向) |
+| ISO27001 × Azure gpt-5.4 | (取得不可) | +0.029 | - | β 制約 (input_signature 不安定 + generator verify FAIL) |
 
-両 OK のため Phase 8-7 (記事 §7/§9 への反映) に進行可.
+「弱モデル × ollama での再現性」は両ドメイン完全 OK. 「強モデル × Azure」は
+NDA で reuse 効果の縮小が想定通り観測, ISO27001 で β 制約が顕在化. 公開には十分.
 
 ## 6. compose 補助情報の所感
 
