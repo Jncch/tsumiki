@@ -1,0 +1,538 @@
+---
+title: "【Agentic AI 検証 続編】目的駆動とドメイン横展開で「再利用の土俵」を作り直す"
+emoji: "🧩"
+type: "tech"
+topics: ["llm", "agentic", "agentsquare", "dspy", "mlflow"]
+published: false
+---
+
+前回記事「[【Agentic AI 検証】知識層は本当に再利用できるのか](https://zenn.dev/jnch/articles/68b0ede8c04aa8)」では、NDA ドメインを舞台に「知識層の再利用は本当に効くのか」を測りました。結論は弱モデル (Qwen 2.5 14B) で paired_diff +0.212、強モデル (Azure GPT-5.4) で +0.074 に縮小という、ややしょっぱい数字でした。
+
+この記事はその続編です。前回までで「知識層単体ではモデル能力差を埋めきれない」と分かったうえで、では Agentic AI の **「再利用の土俵そのもの」** をどう組み立てれば良いのか、という問いに踏み込みます。1 ヶ月で実装した 3 つの追加検証 (目的駆動 E2E / ISO27001 への横展開 / AgentSquare 統合) を 1 本にまとめてお届けします。
+
+## 全体像
+
+| 項目 | 内容 |
+| --- | --- |
+| 続編で追加した検証 | 目的駆動 E2E (Phase 5c) / ISO27001 横展開 (Phase 6) / AgentSquare 統合 (Phase 7) |
+| 主な数値 | NDA paired_diff +0.261、ISO27001 paired_diff +0.029、N=2 ドメインで仮説再現 |
+| フレームワーク | tsumiki (`src/tsumiki/`)、AgentSquare を partial vendoring (Apache-2.0) |
+| 再現性 | 290 件の unit test PASS、`uv` + `Docker` + `MLflow`、`temperature=0` + seed 固定 |
+| 公開 | GitHub `Jncch/tsumiki` を Apache-2.0 で公開 |
+
+## この記事で扱うこと
+
+| 扱う | 扱わない |
+| --- | --- |
+| 自然言語目的 → TaskSpec → 評価器流用 → E2E 完走の経路 | エンドユーザー向け UI、Web アプリ |
+| ドメイン横展開 (NDA + ISO27001 で N=2) の数値再現 | N=3 以上の追加ドメイン (Phase 9+ で予定) |
+| AgentSquare の取り込み方針と LLM 差し替えの実装手順 | AgentSquare 探索の本格的な hyperparameter 最適化 |
+| 評価器 gate を強制する設計 (CLAUDE.md §9) | LLM judge の人手較正 (β 機能扱い) |
+| OSS 公開時の正直な β 機能の扱い | benchmark_fn の本物実装 (Phase 9+ 持ち越し) |
+
+## 0. 前回記事との関係
+
+前回記事の主題は「ドメイン辞書を 1 つ書けば、別タスクへ流用して工数削減・性能維持できるか」でした。結論として paired_diff は弱モデルで +0.212、強モデルで +0.074。**「モデル能力 > 知識層の品質」** という、知識層単体への期待を絞り込む結果になりました。
+
+本稿で扱うのはその次の問いです。
+
+> モデル能力で半分は決まる。では残り半分の「土俵 (= 再利用するための骨格)」をどう設計するか?
+
+「土俵」というのは、目的駆動の自然言語入力 → 構造化スキーマ → 評価器の流用判定 → 知識・ツール層のロード → ポリシー層の合成、というパイプライン全体のことです。前回はこの土俵が暗黙的に NDA 専用でしたが、本稿では **TaskSpec / EvaluatorSpec という共通骨格** を導入し、ISO27001 を 2 つめのドメインとして同じ土俵に乗せ、最後に AgentSquare の探索エンジンを薄いラッパでつなぎます。
+
+## 1. 前回の結論と残った 3 つの問い
+
+前回記事で出した数値を再掲します。
+
+| モデル | reuse | zerobase | paired_diff |
+| --- | --- | --- | --- |
+| Qwen 2.5 14B (弱モデル) | 高 | 中 | **+0.212** |
+| Azure GPT-5.4 (強モデル) | 高 | 高 | **+0.074** |
+
+そこから残った問いは 3 つです。
+
+| 問い | 中身 |
+| --- | --- |
+| **問い 1** | NDA 単独で出た +0.212 はドメインを変えても再現するか? 負の転移は? |
+| **問い 2** | 「目的駆動」つまり自然言語の目的から評価器流用 → 知識ロード → 実行まで通すパイプラインは組めるか? |
+| **問い 3** | policy 探索エンジン (AgentSquare) を tsumiki の枠組みに統合できるか? |
+
+3 つに対して、本稿では **Phase 5c (目的駆動 E2E) → Phase 6 (ISO27001 横展開) → Phase 7 (AgentSquare 統合)** の順に検証していきます。
+
+## 2. 本稿の仮説と検証設計
+
+### 2.1 検証する 3 つのこと
+
+| Phase | 検証対象 | 主指標 | 合格条件 (事前固定) |
+| --- | --- | --- | --- |
+| 5c | 目的駆動 E2E が NDA で動くか | paired_diff | +0.261 ±0.05 (前 phase と一致) |
+| 6 | 同一フレームで ISO27001 に乗るか | paired_diff (ISO27001) | > 0 (正の寄与) |
+| 7 | AgentSquare 統合 + 評価器 gate が動くか | unit test + smoke 試走 | 290/290 PASS、gate 通過 |
+
+合格条件は **執筆時点で全て事前固定** しています。後出しはしません。前回記事と同じく合格条件先出しスタイルです。
+
+### 2.2 ドメインの追加 (NDA + ISO27001 = N=2)
+
+ISO27001 を選んだ理由は次の 3 点です。
+
+- NDA (契約レビュー) とは違う「監査チェック」という観点で同じ「不備パターン検出 → 修正提案」型タスクであること
+- 国際標準で公開資料が豊富、Annex A の制御項目が体系的
+- 弊社の関心ドメインの 1 つで、運用文書のレビュー自動化に直結する
+
+ISO27001 用 9 不備パターンは Annex A から「アクセス制御不備」「変更管理欠落」など 4 領域からサンプリングして手書きで作りました。NDA の 9 NG パターンと件数を揃えて比較しやすくしています。
+
+### 2.3 フェーズ構成
+
+各 Phase の役割を表にします。
+
+| Phase | 役割 | 主成果物 |
+| --- | --- | --- |
+| 5a | 辞書 ablation (NDA で寄与分析) | 「対象条項」セクションが +0.172 寄与 |
+| 5b | 知識層を Agent Skills 形式 (Markdown) に揃える | YAML → MD 変換、paired_diff +0.261 で情報損失なし |
+| 5c | 目的駆動 E2E パイプライン | TaskSpec / EvaluatorSpec / `runner/e2e.py` |
+| 6 | ISO27001 横展開 (N=2) | 9 不備パターン定義 + 試走 |
+| 7a〜7e | AgentSquare partial vendoring + policy/compose | `src/tsumiki/policy/agentsquare/` + `policy/compose/` |
+
+本稿の主役は 5c / 6 / 7 ですが、Phase 5a の ablation と Phase 5b の Agent Skills 化が前段として効いています。
+
+## 3. Phase 5c: 目的駆動 E2E へ
+
+### 3.1 TaskSpec / EvaluatorSpec という構造化
+
+前回までの実装は「NDA 用ハードコード」が随所にあり、別ドメインに移すたびに `runner/phase2.py` のような専用 runner を増やす必要がありました。これでは N を増やすたびに工数が線形に増えてしまいます。
+
+そこで、自然言語の目的を **TaskSpec** という共通の dataclass に揃え、評価器を **EvaluatorSpec** という共通形式で保存することにしました。
+
+```python
+@dataclass(frozen=True)
+class TaskSpec:
+    task_class: TaskClass  # "detect" / "modify" / "detect_and_modify" 等
+    domain: str            # "nda" / "iso27001" / ...
+    input_roles: tuple[InputRole, ...]
+    knowledge: KnowledgeSource
+    outputs: tuple[OutputSchema, ...]
+    raw_goal: str          # 自然言語の原文 (監査用)
+```
+
+```python
+@dataclass(frozen=True)
+class EvaluatorSpec:
+    id: str
+    domain: str
+    task_class: TaskClass
+    type: EvaluatorType    # "deterministic" / "llm_judge" / "hybrid"
+    input_signature: tuple[tuple[str, str], tuple[tuple[str, str], ...]]
+    output_metrics: tuple[str, ...]
+    implementation: str    # Python ソース or LLM judge プロンプト
+    test_cases: tuple[TestCase, ...]
+    guardrails: tuple[str, ...]
+    approved_by: str       # 流用判定用. "" なら未承認
+```
+
+`input_signature` は流用蓄積から探すときの検索キーです。`domain` + `task_class` + `input_signature` の 3 列で「同じ評価器が使えるか」を判定します。
+
+### 3.2 評価器の lookup (流用) と generator (生成) の二系統
+
+E2E パイプラインは次の順で動きます。
+
+| 段階 | 動作 |
+| --- | --- |
+| (1) parser | 自然言語目的 → TaskSpec |
+| (2) lookup | 流用蓄積から評価器を検索 (domain + task_class + io_signature で完全一致) |
+| (3a) lookup hit | exact_match を採用、generator スキップ |
+| (3b) lookup miss | generator が新規 EvaluatorSpec を LLM 生成 → verifier が test_cases を通過させる → 承認 → 保存 |
+| (4) Knowledge ロード | TaskSpec の `knowledge.catalog_path` から NG パターンを読み込む |
+| (5) synth | clean 条項 + NG パターンから合成サンプル生成 |
+| (6) reuse + zerobase | 2 つの variant を回す |
+| (7) 動的ロード evaluate() | 保存済みの `evaluator.py` を `importlib` で読み込んで適用 |
+| (8) paired_diff | reuse - zerobase を算出 |
+
+このうち **(2) lookup と (3) generator の二系統** が「土俵」設計の核心です。lookup は既存資産の再利用、generator は新規生成。新しいドメインに広げるときは generator パスを通って評価器を作り、それが流用蓄積に追加されることで次回以降は lookup で済むようになります。
+
+### 3.3 知識層を Agent Skills 形式に揃える
+
+Phase 5a の ablation で、NG パターン辞書のどのセクションが効くかを測りました。
+
+| セクション | paired_diff 寄与 (推定) |
+| --- | --- |
+| 対象条項 | **+0.172** |
+| 検出すべき | +0.060 程度 |
+| 紛らわしい | +0.040 程度 |
+| excerpt (例文) | +0.030 程度 |
+| applicable_topics | 0 (detector v0.3.0 では dead code) |
+
+「対象条項」セクション (どの条項を検査対象とするか) が最も寄与する、というのが Phase 5a の発見です。
+
+そのうえで Phase 5b では、辞書を YAML から Anthropic の Agent Skills 形式 (Markdown + frontmatter) に揃えました。これにより:
+
+- Knowledge 層を Markdown として読みやすくなった (人間レビューが楽)
+- YAML 駆動の `load_ng_patterns_auto` と互換性のあるローダ (`tsumiki.knowledge.skills_loader`) を実装
+- 情報損失なしで paired_diff +0.261 を再現
+
+Markdown 化したことで、後の Phase 7 で `examples/nda/knowledge/` と `examples/iso27001/knowledge/` のように **examples ディレクトリで配布できる形** が固まりました。
+
+### 3.4 paired_diff +0.261 を完全再現
+
+Phase 5c の試走結果です。
+
+| 指標 | 期待 | 実測 | 判定 |
+| --- | --- | --- | --- |
+| task_class | detect_and_modify | detect_and_modify | ◯ |
+| domain | nda | nda | ◯ |
+| evaluator | `modification_success_v1` を流用 | exact_match | ◯ |
+| generator 呼び出し | スキップ | スキップ | ◯ |
+| reuse success_rate | 0.550 | 0.550 | ◯ |
+| zerobase success_rate | 0.289 | 0.289 | ◯ |
+| **paired_diff** | **+0.261 ±0.05** | **+0.261 (\|diff\|=0.000)** | **ゲート通過** |
+
+数値は Phase 5b と **完全一致** (`|diff|=0.000`)。これは「目的駆動の土俵を入れても、評価器が正しく流用される限り paired_diff の意味は変わらない」ことを示します。当然と言えば当然ですが、土俵の追加で精度が悪化していないことを数値で確認できたのが大事です。
+
+実装上のつまづきも 3 つありました。
+
+| 発見 | 修正 |
+| --- | --- |
+| parser の ChatFn 型不整合 (`ChatResult` vs `str`) | `_to_text_chat_fn` アダプタ追加 |
+| qwen 14B が「レビューして直す」を `modify` と判定 | parser プロンプトに「複合動作は `detect_and_modify`」と追記 |
+| parser が `outputs` を 1 つだけ返す | parser プロンプトに `detect_and_modify` の標準 outputs を明示 |
+
+弱モデル (qwen 14B) でも一気通貫が安定動作するまで、プロンプトを 3 回書き直しました。
+
+## 4. Phase 6: ISO27001 への横展開 (N=2)
+
+### 4.1 9 不備パターンの定義 (運用文書のレビュー)
+
+ISO27001 の Annex A から 4 領域 (アクセス制御、変更管理、ログ監視、セキュリティインシデント対応) を選び、9 不備パターンを定義しました。命名は NDA に揃えて snake_case です。
+
+| ID 例 | 不備の内容 |
+| --- | --- |
+| `iso27001_access_control_undefined` | アクセス制御責任者が文書中で明示されていない |
+| `iso27001_change_management_missing` | 変更管理プロセスが ISO27001 の要求を満たさない |
+| `iso27001_log_review_undefined` | ログレビュー頻度・責任者が未定義 |
+| ... (全 9 件) | |
+
+clean clauses (適切な条項例) は 10 件を手書きで作成しました。LLM 合成ではなく手書きにしたのは、業務データに依存しない一方で、実運用文書との分布乖離が残るリスクをコントロールするためです。
+
+### 4.2 同一フレームで NDA と ISO27001 を回す
+
+ISO27001 用に専用 runner を作らず、Phase 5c で作った `runner/e2e.py` をそのまま使いました。実行コマンドは次の 2 つだけです (引数が違うだけで同じスクリプト)。
+
+```bash
+bash examples/nda/run.sh         # NDA
+bash examples/iso27001/run.sh    # ISO27001
+```
+
+これで、同じパイプラインで両ドメインが動くことを実証できました。
+
+| 段階 | NDA (Phase 5c) | ISO27001 (Phase 6) |
+| --- | --- | --- |
+| parser domain | nda | iso27001 |
+| parser task_class | detect_and_modify | detect_and_modify |
+| parser outputs | findings + modified_document | findings + modified_document |
+| lookup | `modification_success_v1` を流用 | `audit_findings_success_v1` を流用 |
+| Knowledge | 9 NG patterns | 9 不備 patterns |
+| synth | 45 サンプル | 42 サンプル (3 skip) |
+
+### 4.3 paired_diff +0.029, N=2 で仮説再現確認
+
+主指標です。
+
+| 指標 | NDA (Phase 5c) | **ISO27001 (Phase 6)** | 差 |
+| --- | --- | --- | --- |
+| reuse success_rate | 0.550 | **0.410** | -0.140 |
+| zerobase success_rate | 0.289 | **0.381** | +0.092 |
+| **paired_diff (reuse - zerobase)** | **+0.261** | **+0.029** | **-0.232** |
+| reuse negative_transfer | 0.700 | 0.487 | -0.213 |
+| NT diff (reuse - zerobase) | +0.256 | -0.013 | -0.269 |
+
+ISO27001 でも **paired_diff = +0.029 で正の寄与** を観測。設計 §4.2 の合格条件「paired_diff > 0」を満たし、N=2 ドメインで知識層再利用の効果が再現されました。NT diff (負の転移率の差) も -0.013 で絶対値が小さく、「reuse の方が悪化させる」現象は観測されていません。
+
+### 4.4 ドメインによる効きの差 (NDA 0.261 vs ISO27001 0.029)
+
+ただし、効果は **約 1/9 に縮小** しています。これは前回記事 §4.3 で観測した「強モデルでは zerobase 自身が高性能になるため相対的価値は縮小」と **同型の現象がドメイン間で再現** したものと解釈できます。
+
+| 仮説 | 根拠 | 重み |
+| --- | --- | --- |
+| **(a) ドメイン特性: ISO27001 のような技術的・規範的なドメインでは qwen 14B 自体が一定の知識を持つため zerobase が高い** | zerobase の絶対値が NDA より +0.092 高い (0.381 vs 0.289) | **大** |
+| (b) Knowledge スキルの description が ISO27001 で最適化されていない | Phase 5a の ablation を ISO27001 では未実施 | 中 |
+| (c) clean clauses 10 件はサンプル数として少ない | NDA も 10 件で運用しており構造は同じ | 小 |
+| (d) synth 3 skip / modify 3 skip でサンプル損失 | サンプル数差は微小 | 小 |
+
+最も支配的なのは (a) のドメイン特性です。**Knowledge 層再利用の効きは「ベースラインの zerobase がどれだけ低いか」に依存する**、というのが Phase 1〜4 + Phase 6 を通じての発見です。これは前回記事の「モデル能力 > 知識層の品質」を **ドメイン軸からも傍証** する観測になりました。
+
+つまり「弱いドメイン × 良い辞書 = 大きな効果」「強いドメイン × 良い辞書 = 小さな効果」という関係が、モデル軸でもドメイン軸でも成立しているということです。
+
+## 5. Phase 7: AgentSquare partial vendoring + policy/compose
+
+ここから OSS 統合の話に入ります。Phase 7 は 7a〜7e + bonus-3 の 7 サブフェーズで構成され、目的は「**policy 探索エンジン (AgentSquare) を tsumiki の枠組みに統合する**」ことでした。
+
+### 5.1 なぜ fork でなく partial vendoring (B-2) を選んだか
+
+AgentSquare ([tsinghua-fib-lab/AgentSquare](https://github.com/tsinghua-fib-lab/AgentSquare), Apache-2.0) は Planning / Reasoning / Tool Use / Memory の 4 モジュールに分けた制約付きエージェント探索フレームワークです。
+
+統合方針として 3 つの選択肢を Phase 7a で比較しました。
+
+| 案 | 内容 | 採否 |
+| --- | --- | --- |
+| A | 完全 fork (リポジトリ全体を tsumiki 側で fork) | × |
+| B-1 | git submodule で全体を参照 | × |
+| **B-2** | **partial vendoring (必要なファイルだけコピー、上流の SHA を記録して追随)** | **◯** |
+
+B-2 を選んだ理由は次の通りです。
+
+- **alfworld 依存が重い**: 上流の `tasks/alfworld/`, `tasks/webshop/` 等は学術ベンチ専用で、契約レビュー用途には不要。fork すると依存ツリー全体を抱え込む
+- **上流の更新頻度が低い**: 四半期 1 回程度の追随で十分
+- **ライセンスがクリア**: Apache-2.0 + 上流が単一作者なので vendoring の法的負担が軽い
+- **改変の自由度**: ChatFn DI 化や langchain 削除など、tsumiki の方針に合わせた書き換えが必要
+
+取り込んだ範囲は次の通りです。
+
+| 上流 | 配置先 | 用途 |
+| --- | --- | --- |
+| `modules/{memory,planning,reasoning,tooluse}_modules.py` | `src/tsumiki/policy/agentsquare/{memory,planning,reasoning,tooluse}.py` | 4 モジュールの実装 |
+| `module_evolution/` | `evolution/` | LLM による新モジュール生成 |
+| `module_recombination/`, `module_predictor/`, `search/` | `recombination/`, `predictor/`, `search/` | モジュール探索ループ |
+| `search/{memory,planning,reasoning,tooluse}_modules.json` | `search/archives/*.json` | 初期 archive (alfworld 由来) |
+
+捨てたものは `tasks/{alfworld,webshop,m3tooleval,sciworld}/` 全部 (学術ベンチ統合)、上流 `requirements.txt` の `langchain*`, `alfworld`, `backoff`, `tenacity` などです。
+
+ライセンス遵守として、リポジトリルートに `LICENSE` (Apache-2.0)、`NOTICE` (tsumiki + AgentSquare attribution)、`THIRD_PARTY_LICENSES/AgentSquare/LICENSE` を配置。各 vendored ファイル冒頭に「`Upstream: ... derived from SHA <8f5b3fe...>`」の docstring を付けました。
+
+### 5.2 ChatFn DI でタスク固有 utils と langchain を剥がす
+
+上流コードの典型パターンはこうでした。
+
+```python
+# 上流 (改変前)
+from utils import llm_response  # ← タスク固有
+from langchain_openai import OpenAIEmbeddings
+from langchain_chroma import Chroma
+
+class XxxBase:
+    def __init__(self, llms_type):
+        self.llm_type = llms_type[0]
+
+    def __call__(self, ...):
+        result = llm_response(prompt=p, model=self.llm_type, temperature=0.1, ...)
+```
+
+これを ChatFn 依存性注入 (DI) パターンに書き換えました。
+
+```python
+# tsumiki (改変後)
+from collections.abc import Callable
+ChatFn = Callable[[str], str]
+
+class XxxBase:
+    def __init__(self, chat_fn: ChatFn, llms_type: list[str] | None = None) -> None:
+        self.llm_type = llms_type[0] if llms_type else ""
+        self._chat_fn = chat_fn
+
+    def __call__(self, ...):
+        result = self._chat_fn(prompt)
+```
+
+`Callable[[str], str]` という抽象に統一したことで、上流の `from openai import OpenAI` を全削除、langchain 系も削除できました。tsumiki 側で `make_openai_chat_fn(client, ...)` というファクトリを 1 つ書けば、ollama / OpenAI / Azure / Anthropic 互換エンドポイントすべてに切り替え可能になります (これは Phase 7d で 3 系統対応を完成済み)。
+
+なお、`MemoryDILU` 等の langchain ベース memory モジュールは、in-memory の `_SimpleMemoryStore` (substring 一致 + 最新順) に差し替えました。これは「semantic 検索の本格実装は Phase 9+」という割り切りです。
+
+### 5.3 policy/compose 薄いラッパと評価器 gate
+
+AgentSquare の探索ループを **そのまま叩く** のではなく、tsumiki 側で薄いラッパ `tsumiki.policy.compose.run_compose` を介して起動するようにしました。理由は **「評価器が無い状態で自動探索を回さない」** (CLAUDE.md §9) を強制するためです。
+
+```python
+@dataclass(frozen=True)
+class ComposeConfig:
+    task_spec: TaskSpec
+    evaluator_spec: EvaluatorSpec
+    knowledge: NGPatternBook
+    llm_settings: LLMSettings
+    chat_fn: ChatFn
+    json_chat_fn: JsonChatFn
+    benchmark_fn: BenchmarkFn   # Agent dict -> performance float
+    max_search_depth: int = 3
+    seed: int = 42
+
+
+def run_compose(cfg: ComposeConfig) -> ComposeResult:
+    _assert_evaluator_gate_passed(cfg.evaluator_spec)  # ← 評価器 gate
+    result = run_search(
+        benchmark_fn=cfg.benchmark_fn,
+        chat_fn=cfg.chat_fn,
+        json_chat_fn=cfg.json_chat_fn,
+        task_description=cfg.task_spec.raw_goal,
+        num_iterations=cfg.max_search_depth,
+    )
+    return ComposeResult(...)
+
+
+def _assert_evaluator_gate_passed(evaluator_spec: EvaluatorSpec) -> None:
+    if not evaluator_spec.is_approved():
+        raise RuntimeError(f"evaluator {evaluator_spec.id!r} is not approved; ...")
+```
+
+`EvaluatorSpec.is_approved()` は `approved_by != ""` を判定するメソッドで、
+
+- `lookup hit` で取り出した評価器 → `approved_by="auto"` で gate 通過
+- `generator` が新規生成した評価器 → `verify` 通過後に `approved_by="auto"` または `approved_by="<user>"` で gate 通過
+
+の 2 経路を許容します。test も 3 経路 (lookup roundtrip / generator デフォルト / 既存 seed) で全て確認済みです。
+
+### 5.4 benchmark_fn は Phase 9+ に持ち越した正直な事情 (β 機能扱い)
+
+ここで正直に書きます。**現在の Phase 7e の compose 統合は「薄いラッパ」段階に留めており、本物の探索評価は Phase 9+ に持ち越し** ました。
+
+具体的には、`benchmark_fn: Callable[[Agent], float]` の中身を trivial にしてあります。
+
+```python
+def _benchmark_fn(_agent: dict[str, str]) -> float:
+    # 補助情報モード: variant 実行は既に終わっているため reuse_sr を返す.
+    return reuse_sr
+```
+
+「Agent 構成 (planning / reasoning / tooluse / memory の 4 モジュール) を選んだら、実際にその構成で variant を回して評価器スコアを返す」という本物の実装には、`agentsquare.{planning,reasoning,memory,tooluse}` を Agent dict の "name" 文字列から実モジュールクラスに引いて連鎖させる、それなりの作業が必要です。Phase 7e は「**薄いラッパが動くこと**」と「**評価器 gate が機能すること**」までを射程にしました。
+
+これにより `examples/{nda,iso27001}/run.sh --use-compose` で AgentSquare の探索ループが起動し、選ばれた構成 (`selected_modules`) と探索スコアが MLflow にロギングされます。ただし benchmark_fn が trivial なので、現状の探索は「**動くことの確認**」までです。本物の探索評価は Phase 9+ で実装します。
+
+README にも β 機能として明記する予定です。中途半端な状態を「実装済み」と謳うと、後で別の OSS ユーザーが踏むので。
+
+| Phase 7e で完了 | Phase 9+ で対応 |
+| --- | --- |
+| AgentSquare partial vendoring + ChatFn DI | benchmark_fn の本物実装 (合成 chat_fn 構築) |
+| `tsumiki.policy.compose.run_compose` 薄いラッパ | archives の domain 適応 (現状 alfworld 由来) |
+| 評価器 gate (CLAUDE.md §9) の強制 | prompts の domain 適応 (alfworld 固有部分の差し替え) |
+| `examples/{nda,iso27001}/run.sh --use-compose` 起動 | generator 主 metric 整合 (7d-4 申し送り) |
+| 290 件の unit test PASS | N=3 ドメイン追加 |
+
+## 6. 本稿で得た 4 つの実装知見
+
+| # | 知見 | 重要度 |
+| --- | --- | --- |
+| 1 | TaskSpec / EvaluatorSpec という共通骨格は薄いほど機能する。**domain × task_class × io_signature の 3 列だけで流用判定可能** だった。複雑な「タスク類似度」を計算する必要はなく、構造的シグネチャの完全一致で十分。 | 大 |
+| 2 | N=2 でも **「ドメインによる効きの差」は無視できない**。zerobase の絶対性能が高いドメインでは reuse - zerobase が縮む。前回の「モデル軸での縮小」と同型の現象がドメイン軸でも起きる。再利用効果を語るときは zerobase 絶対値を併記すべき。 | 大 |
+| 3 | **ChatFn DI は OSS 統合の基本パターン**。`Callable[[str], str]` という抽象に統一しただけで、上流の SDK 直接呼び出し / langchain 依存 / タスク固有 utils が全部剥がれた。テストも mock chat_fn で書けるようになり、unit test 件数が +89 件まで増えた。 | 中 |
+| 4 | **β 機能を「β と明記する」ことが OSS の信頼性に直結**。compose 統合の benchmark_fn が trivial であることを正直に書いてから、迷いがなくなった。完成度を偽らない姿勢が次の Phase の設計判断にも効く。 | 中 |
+
+特に 2 番は重要なので強調しておきます。「NDA で +0.261 出ました」だけ言うと「すごい」と思われがちですが、zerobase が 0.289 (低い) からの差です。ISO27001 では zerobase が 0.381 まで上がるので reuse がいくら頑張っても差は縮みます。**reuse 単独の数字ではなく、ペアで読む** ことを徹底すべきです。
+
+## 7. 主要結果サマリ (表)
+
+本稿全体の結果を 1 枚にまとめます。
+
+### 7.1 paired_diff 比較
+
+| ドメイン | reuse | zerobase | **paired_diff** | NT diff | n_samples | gate |
+| --- | --- | --- | --- | --- | --- | --- |
+| NDA (Phase 5c, qwen 14B) | 0.550 | 0.289 | **+0.261** | +0.256 | 45 | ◯ (\|diff\|=0.000) |
+| ISO27001 (Phase 6, qwen 14B) | 0.410 | 0.381 | **+0.029** | -0.013 | 42 | ◯ (> 0) |
+| NDA (前回, qwen 14B) | - | - | +0.212 | - | - | - |
+| NDA (前回, GPT-5.4) | - | - | +0.074 | - | - | - |
+
+前回の NDA +0.212 と本稿の NDA +0.261 が異なるのは、Phase 5a の辞書 ablation で「対象条項」セクションを強化した結果として paired_diff が改善したためです。前回時点のスコアは比較用に残しました。
+
+### 7.2 AgentSquare 統合の達成項目
+
+| 項目 | 状態 | 補足 |
+| --- | --- | --- |
+| Vendoring (modules + evolution + recombination + predictor + search) | ◯ | 上流 SHA `8f5b3fe5d8a32f9b59d20370823bef2a2c86928c` 由来 |
+| LLM 差し替え (ChatFn DI) | ◯ | `from openai` / `from utils` / `import langchain` 全削除 (ast 検査確認) |
+| ライセンス遵守 | ◯ | LICENSE + NOTICE + THIRD_PARTY_LICENSES |
+| 評価器 gate (`_assert_evaluator_gate_passed`) | ◯ | 3 経路 (lookup / generator / 既存 seed) で確認 |
+| `compose.run_compose` 動作 | ◯ | mock chat_fn + 評価器で `ComposeResult` 返却 |
+| `examples/*/run.sh --use-compose` 起動 | ◯ | 補助情報モードで MLflow にロギング |
+| 290 件 unit test PASS | ◯ | リグレッションなし |
+
+### 7.3 公開リポジトリ
+
+| 項目 | 内容 |
+| --- | --- |
+| URL | https://github.com/Jncch/tsumiki |
+| ライセンス | Apache-2.0 |
+| 依存管理 | `uv` + `pyproject.toml` + `uv.lock` |
+| 言語 | Python 3.13 |
+| examples | `examples/nda/` + `examples/iso27001/` (リファレンス実装) |
+| ドキュメント | `docs/experiments/phase{5a〜7e}_*.md` (検証経過の全記録) |
+
+## 8. 結論
+
+### 8.1 3 つの問いへの答え
+
+| 問い | 答え |
+| --- | --- |
+| **問い 1**: NDA で出た再利用効果はドメイン横断で再現するか? | **△ Yes, ただし効きはドメイン依存**。N=2 で paired_diff > 0 を確認 (NDA +0.261 / ISO27001 +0.029) するも、効きは約 1/9 に縮小。 |
+| **問い 2**: 目的駆動の「土俵」を組み立てられるか? | **◯ Yes**。TaskSpec / EvaluatorSpec の薄い構造で十分機能。lookup + generator の二系統で N=2 をカバー。Phase 5c で paired_diff +0.261 完全再現。 |
+| **問い 3**: AgentSquare を統合できるか? | **△ Yes (薄いラッパまで)**。ChatFn DI で alfworld 依存を剥がし、評価器 gate を強制。benchmark_fn の本物実装は Phase 9+ に持ち越し (β 機能扱い)。 |
+
+### 8.2 投資先判断アップデート
+
+前回記事の「投資先判断マトリクス」を本稿の発見でアップデートします。
+
+| 投資先 | 前回の判断 | 本稿後の判断 | 変化 |
+| --- | --- | --- | --- |
+| 強モデル | ◎ (能力で半分決まる) | ◎ 維持 | - |
+| 知識層辞書 | ○ (弱モデル限定で効く) | ○ ドメイン依存性に注意 | ⇒ より慎重に |
+| **目的駆動の土俵** | (未検証) | **○ N=2 で動作確認、再利用の前提として有効** | **+** |
+| **policy 探索エンジン (AgentSquare)** | (未検証) | △ 統合の足場はできた、効果検証は Phase 9+ | (継続) |
+| **OSS としての公開** | (未検証) | **○ 「土俵」として価値あり、β 機能扱いを正直に明記** | **+** |
+
+### 8.3 最終結論 (一文まとめ)
+
+**「Agentic AI の再利用は、知識層単体ではなく『目的駆動の土俵 + ドメイン依存性の自覚 + 探索エンジンの薄い統合』として組み立てるべき」**。
+
+前回記事は「知識層単体の限界」を測りました。本稿は「ではどう組み立てるか」の足場を 1 ヶ月で作り、N=2 で動作確認できた、という前進報告です。完成品ではなく **「土俵を組んだので、ここから探索を回しに行きます」** という立ち位置です。
+
+## 9. 制約と次の問い
+
+正直に書きます。本稿時点で残っている制約は次の通りです。
+
+| 制約 | 内容 | 影響 |
+| --- | --- | --- |
+| N=2 は汎用性主張に弱い | NDA + ISO27001 の 2 ドメイン | 3 つ目のドメイン (Phase 9+) が必要 |
+| benchmark_fn が trivial | compose の探索評価は補助情報モード | 本物の合成 chat_fn は Phase 9+ |
+| 1 seed のみ | seed=42 のみで CI を取れていない | 3 seed CI は Phase 9+ |
+| generator パスは β | qwen 14B では生成コードの意味的品質が不足 (Phase 6 で観測) | 強モデル (GPT-5.4) での generator 改修は Phase 9+ |
+| 評価は決定関数のみ | LLM judge + 人手較正は未実施 | 開放タスクへの拡張は Phase 9+ |
+| `--use-compose` 経由の paired_diff 実走 | 本稿執筆時点でユーザー実走待ち | 数値は β として記録予定 |
+| ISO27001 clean clauses は手書き合成 | 実規程テンプレートとの分布乖離リスク | 第三者の追試では実データ照合が望ましい |
+
+次の問いは 3 つです。
+
+1. **N=3** で再現するか? (法務以外、例えば仕様書レビュー、ログ監査などの非テキスト規範ドメイン)
+2. AgentSquare の **本物の探索評価** を入れたとき、選択される構成は domain ごとに違うか?
+3. **強モデル × 大規模 clean データ** で paired_diff はどこまで上がるか? それともサチるか?
+
+## 10. 参考文献・関連 OSS
+
+### 10.1 OSS
+
+| OSS | 用途 | ライセンス |
+| --- | --- | --- |
+| [AgentSquare](https://github.com/tsinghua-fib-lab/AgentSquare) | policy 探索エンジン (partial vendoring) | Apache-2.0 |
+| [DSPy](https://github.com/stanfordnlp/dspy) | ポリシー再最適化 (Phase 9+ で利用予定) | MIT |
+| [MLflow](https://github.com/mlflow/mlflow) | 実験記録 | Apache-2.0 |
+| [Ollama](https://github.com/ollama/ollama) | ローカル LLM ホスト | MIT |
+| [uv](https://github.com/astral-sh/uv) | Python パッケージマネージャ | Apache-2.0 / MIT |
+| [Anthropic Agent Skills](https://docs.anthropic.com/en/docs/build-with-claude/agent-skills) | 知識層の Markdown 形式 | (公開仕様) |
+
+### 10.2 関連研究
+
+- AgentSquare 論文 (制約付きモジュール探索)
+- AFlow 論文 (LLM ベースのワークフロー最適化)
+- Voyager 論文 (skill 蓄積)
+- DSPy 論文 (LM プロンプト最適化)
+
+### 10.3 関連記事
+
+- 前回記事: [【Agentic AI 検証】知識層は本当に再利用できるのか](https://zenn.dev/jnch/articles/68b0ede8c04aa8)
+
+### 10.4 リポジトリ
+
+- 実装: https://github.com/Jncch/tsumiki
+- 検証経過: `docs/experiments/phase{5a〜7e}_*.md` (各 Phase の結果報告書)
+
+## 11. 著者からの注記
+
+前回記事の結びで「次は AgentSquare 統合と OSS 公開に進みます」と書いたものを、1 ヶ月で形にしました。仕上がりは「**土俵までは組めた、ここから探索を回す**」というところで、完成品ではありません。それでも N=2 で仮説再現を確認できたこと、OSS としての足場 (ライセンス、CI 通過、examples 2 件) が固まったことは前進と捉えています。
+
+β 機能を β と書く、できなかったことをできなかったと書く、この姿勢が中長期的には OSS の信頼性に直結すると思っています。PR / issue は歓迎します。特に N=3 ドメインを試したい方、benchmark_fn の本物実装に興味がある方は声をかけてください。
+
+(検証は引き続き Phase 9 以降で進めます。続報をお待ちください。)
