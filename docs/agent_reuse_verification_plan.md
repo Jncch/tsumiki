@@ -14,6 +14,9 @@
 - 再利用が成立する粒度は明確に分ける。再利用できるのは知識層とツール層であり、最適化済みポリシー層はタスクごとに作り直し＋再評価が必要。
 - この仮説の一般原理は既に実証済み（スキルライブラリ系研究）。未検証なのは「業務文書・法務のような縦ドメインで、転用関係にある2タスク間に効くか」という具体形。
 - したがって本検証の正味の価値は「既知の原理を未検証のドメインで確認し、負の転移の有無と工数削減効果を実測する」ことにある。
+- 最終成果物の輪郭（2026-06-19 確定）: **目的駆動の自動構成 OSS フレームワーク**。自然言語の目的を受け、構造化スキーマへ変換し、評価器を LLM で生成しユーザーが承認、ナレッジを流用または抽出し、エージェントを構成して実行・評価まで一気通貫で行う。
+- ゴール設計の決定事項: 目的入力は自然言語 + LLM 構造化スキーマの確認フロー、評価器は LLM 自動生成 + 承認 + 流用蓄積、評価器の中身は決定関数および LLM judge（後者はペアワイズ・3 体パネル・人手較正のガードレール必須）、流用蓄積の検索粒度は `domain` + `task_class` + 入出力スキーマ一致。
+- 制約（CLAUDE.md と整合）: 自動構成は AgentSquare のモジュール探索（制約された役割合成）まで、評価器の自動探索は「ユーザー承認済み評価器が存在する状態」でのみ起動、LLM judge を含む評価器にはガードレールを自動適用。
 
 ---
 
@@ -79,6 +82,13 @@
 | Phase 1 評価器＋ベースライン | 主指標を計算する評価関数を実装。単一プロンプトのベースラインを作る。test分割を層化固定、temperature=0、モデルバージョン固定、全試行をMLflowに記録 | ベースラインのスコア・コスト・レイテンシが以降の比較の床 |
 | Phase 2 再利用の対照実験 | T2をゼロベースで構築 vs T1の知識・ツール層を注入して構築 | 知識層再利用の効果を実測 |
 | Phase 3 頑健性・負の転移 | タスク記述の言い換え・シード変更で再実行し安定性を確認。再利用層が新タスクの足を引っ張らないか確認 | 不安定なら再現性の観点で否定的結論 |
+| Phase 4 ハイブリッド戦略 | クラウド強モデルで生成した辞書をローカル弱モデルで使う構成を検証 | 辞書品質と実行モデル能力のどちらがボトルネックかを判定 |
+| Phase 5a 辞書 ablation | NDA で description / excerpt_examples / 対象条項などの要素を削った variant 辞書を作り、reuse paired diff への寄与を計測 | Knowledge schema 設計の根拠が固まる |
+| Phase 5b 可搬資産化 | 既存 YAML 辞書を Agent Skills 標準（Markdown スキル）に変換するコンバータを実装、配布可能な形に整える | reuse paired diff が同等を保てば資産化成立 |
+| Phase 5c 目的駆動 CLI | 自然言語目的→構造化スキーマ→評価器生成→ナレッジ流用→エージェント構成→実行・評価 の end-to-end パイプライン雛形を NDA で動かす。承認済み評価器を eval/generated/ に蓄積 | MLflow に Phase 2 と同じ指標が出ること、生成評価器が NDA で Phase 2 値と±0.05 内で一致 |
+| Phase 6 横展開 | 別ドメイン1本（暫定: ISO27001 監査チェック）で T1 / T2 を定義、reuse vs zerobase 対照実験を再走 | reuse paired diff > 0 を再現できれば N=2 で汎化主張可 |
+| Phase 7 フレーム化 | AgentSquare を fork し、Knowledge / Tool 層を差し替え可能にするプラグイン仕様を実装。examples/nda と examples/iso27001 が同一フレームで動くことを確認 | 同一フレームでの 2 ドメイン動作が成立 |
+| Phase 8 発信 | Zenn Part 3「辞書を可搬資産にする」、Part 4「別ドメインで再現した」執筆。OSS 公開（README / CONTRIBUTING / ライセンス整備） | リポジトリ公開と Zenn 記事公開 |
 
 ### 5.3 対照実験の核
 
@@ -170,18 +180,99 @@
 
 ---
 
-## 9. 次に確定すべき事項
+## 9. 当初確定すべきだった事項（Phase 1〜4 で完了）
 
-1. 対象ドメインの確定（知識整備が重い領域ほど方式の旨味が出る）。
-2. そのドメイン内で転用関係にある2タスク T1, T2 の確定。
-3. T1のデータ・ラベルの粒度（文書単位か条項単位か）、件数、クラス比の確認（Phase 0）。
-4. 主指標を計算する評価関数の定義（ラベル系なら NG Recall を主に F-beta 等）。
+補注: 以下は本書執筆当初に未確定だった項目。Phase 1〜4 完了時点で次の通り確定済み。詳細は `docs/experiments/` 配下の各報告を参照する。
 
-上記が決まれば、対照実験の設計はそのまま固定できる。
+1. 対象ドメイン: NDA（中小企業庁ガイドラインの guideline02.docx 系を雛形に合成）。
+2. T1 / T2: T1 = NG 条項の検出、T2 = NG 条項の修正。
+3. データ粒度: 条項単位、9 NG パターン、合成クリーン条項からの注入で生成。
+4. 主指標: T1 は NG Recall を主、F-beta 補助。T2 は target NG が修正後に検出されない率（success_rate）と negative_transfer（target 外への波及）。
 
 ---
 
-## 10. 出典・参考URL
+## 10. OSS 化ロードマップ（Phase 5〜8）
+
+Phase 1〜4 で「弱モデル + 知識層再利用は強く効く（paired diff +0.212）」「強モデルでは zerobase 自身が高性能で相対価値は縮小」「クラウド辞書をローカルで使っても弱モデルの天井は破れない」が確定した。これを踏まえ、tsumiki を **層分離をプラグイン化した OSS フレーム** として外部公開するまでの段階を以下に置く。
+
+### 10.1 最終成果物の輪郭
+
+ディレクトリ構成（2026-06-19 更新、目的駆動への再設計を反映）:
+
+```
+tsumiki/                         # AgentSquare fork ベース
+├── goal/                        # 自然言語目的 → 構造化スキーマ変換、評価器ジェネレータ、承認フロー
+├── input/                       # PDF / DOCX / MD / YAML / JSONL ローダ
+├── knowledge/
+│   ├── extractors/              # LLM ベースの構造化抽出（RAG なし）
+│   ├── schemas/                 # NG パターン等の共通 schema（汎用）
+│   └── skills/                  # Agent Skills 標準で配布する可搬資産
+├── tools/                       # 検索・比較・diff・フォーマッタ等の決定的関数群
+├── policy/
+│   ├── compose/                 # 制約付き役割合成（AgentSquare モジュール探索）
+│   └── optimize/                # DSPy / AFlow による Policy 再最適化
+├── eval/
+│   ├── core/                    # LLM judge 用ガードレール（ペアワイズ / 3 体パネル / 人手較正）
+│   ├── generated/               # 流用蓄積。承認済み評価器をドメイン × タスククラスで分類
+│   │   └── <domain>/<task_class>/<evaluator_id>/  # evaluator.py / meta.yaml / test_cases.jsonl / README.md
+│   └── runners/                 # MLflow 連動の自動検証ランナー
+├── runner/                      # 目的入力→構造化→評価器生成→ナレッジ→構成→実行・評価 の end-to-end CLI
+└── examples/
+    ├── nda/                     # リファレンス実装1（Phase 5c で整備）
+    └── iso27001/                # リファレンス実装2（Phase 6 で整備）
+```
+
+汎用フレームは `tsumiki/` 直下、ドメイン固有資産は `examples/` 配下。`examples/` を 2 件以上揃えることで「ドメイン非依存に使える」の裏付けとする。
+`eval/generated/` への初期蓄積は Phase 1〜4 で実装した NDA 評価器（`modification.success_rate`, `modification.negative_transfer`, `classification.ng_recall` 等）の移植で行う。
+
+### 10.2 「目的入力」「自動構成」「自動検証」の射程
+
+§2 の決定および §9 の禁則と整合させる。2026-06-19 のゴール再整理を反映。
+
+| 項目 | 採用範囲 | 採用しない範囲 |
+| --- | --- | --- |
+| 目的入力 | 自然言語入力 → LLM による構造化スキーマ変換 → ユーザー確認 / 修正フロー | フォーム固定入力のみ、自然言語のまま暗黙解釈 |
+| 自動構成 | AgentSquare のモジュール探索（制約された役割合成）まで | 完全自律のエージェント生成・オーケストレーション |
+| 評価器 | LLM が下書きを生成 → ユーザーが承認 → 確定した評価器でのみ Policy 探索を起動。承認済みは `eval/generated/` に蓄積し流用 | 評価器が未承認のまま自動探索を回す（§9 と整合） |
+| 評価器の中身 | 決定関数（Python 計算）+ LLM judge（ペアワイズ / 3 体パネル / 人手較正のガードレール必須） | 生の LLM 判定スカラーに直接最適化 |
+| 流用蓄積の検索粒度 | `domain` + `task_class` + 入出力スキーマ一致のみ流用候補に提示 | 自然言語の embedding 類似度マッチによる柔軟流用（Phase 7 以降の最適化） |
+| ナレッジ化 | LLM ベースの構造化抽出 → YAML / Agent Skills | RAG コーパスの構築 |
+
+### 10.3 「シナリオ非依存」を主張するための検証基準
+
+| 基準 | 内容 |
+| --- | --- |
+| N ≥ 2 ドメインで仮説再現 | NDA と ISO27001 の 2 件で reuse paired diff > 0 を再現 |
+| 同一フレームで動く | examples/nda と examples/iso27001 が tsumiki/ パッケージの同一コードで動く |
+| 目的駆動セットアップ | 自然言語の目的入力から、構造化スキーマ → 評価器生成 → ナレッジ流用 → エージェント構成 まで一気通貫で動く |
+| `schemas/` の抽象化 | NDA の ng_patterns と ISO27001 の compliance_gaps が同じスキーマ系列に乗る |
+| 評価器流用の検証 | NDA で承認済み評価器が ISO27001 でも流用候補として提示され、一致すれば再評価して採用、不一致は新規生成 |
+| 再現コマンドの整備 | 第三者が `git clone → uv sync → 1 コマンドで 2 件を再現実行` できる |
+
+### 10.4 各フェーズ詳細
+
+| Phase | 主指標 / 完了条件 | 主成果物 | 期間目安 |
+| --- | --- | --- | --- |
+| Phase 5a 辞書 ablation | 各構成要素の reuse paired diff への寄与順位が決まる | `docs/experiments/phase5a_ablation_*.md`、ablation 用 variant 辞書 | 1〜2週 |
+| Phase 5b 可搬資産化 | 変換前後で reuse paired diff が同等（誤差内）であること | `src/tsumiki/knowledge/skills/`、コンバータ実装 | 1週 |
+| Phase 5c 目的駆動 CLI | 自然言語目的入力から end-to-end 実行が完了、生成評価器が Phase 2 値と±0.05 内で一致、承認済み評価器が eval/generated/ に保存される | `src/tsumiki/goal/`、`src/tsumiki/eval/core/`、`src/tsumiki/eval/generated/nda/`、`src/tsumiki/runner/` | 3週 |
+| Phase 6 横展開 | ISO27001 で reuse paired diff > 0、真の negative_transfer ≒ 0 | `data/raw/iso27001/`、`docs/experiments/phase6_*.md`、`examples/iso27001/` | 3〜4週 |
+| Phase 7 フレーム化 | examples/nda と examples/iso27001 が tsumiki/ の同一コードで動作 | AgentSquare fork、`tsumiki/` パッケージ初期版 | 2〜3週 |
+| Phase 8 発信 | Zenn Part 3 / Part 4 公開、GitHub リポジトリ公開 | Zenn 連載継続、`README.md` / `CONTRIBUTING.md` / `LICENSE` | 2週 |
+
+### 10.5 リスクと対応
+
+| リスク | 対応 |
+| --- | --- |
+| AgentSquare fork の上流追随コスト | 差分を最小に保つ。プラグイン点を限定し、本体改変を避ける |
+| ISO27001 ドメインのデータ品質（オープン情報からの合成） | Phase 0 同等のラベル監査を Phase 6 冒頭で踏む |
+| 「自動構成」「自動検証」の射程に対する誤解 | README に明示。完全自律生成を謳わない |
+| Phase 6 で reuse paired diff が立たない場合 | 「NDA で効いたが ISO27001 では効かない」を OSS の章として正直に報告し、適用条件を Knowledge schema に書き戻す（§5.4 「ゼロベースと差が無い → 明確な結論」の運用） |
+| Knowledge 鮮度（§7 ガードレール） | `schemas/` に出典・更新日・有効性フィールドを必須化する |
+
+---
+
+## 11. 出典・参考URL
 
 | 項目 | URL |
 | --- | --- |
