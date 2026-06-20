@@ -131,9 +131,15 @@ def run_phase2_variant(
         except Exception as e:  # noqa: BLE001
             print(f"[phase2 modify] skip {sid} reason={type(e).__name__}: {e!s:.120}")
             continue
-        detected = detect_ng_patterns(
-            modified, patterns, detector_chat_fn, detector_prompt_version
-        )
+        try:
+            detected = detect_ng_patterns(
+                modified, patterns, detector_chat_fn, detector_prompt_version
+            )
+        except Exception as e:  # noqa: BLE001
+            # detector 段階でも grammar parse error 等で落ちることがある（Phase 5a V1 で観測）。
+            # modify と同じくサンプル単位で skip して outcomes には含めない。
+            print(f"[phase2 detect] skip {sid} reason={type(e).__name__}: {e!s:.120}")
+            continue
         outcomes.append(
             build_outcome(
                 sample_id=sid,

@@ -31,7 +31,7 @@ from tsumiki.data.clauses import CleanClause
 from tsumiki.data.synthesis import SynthesisConfig, make_openai_chat_fn
 from tsumiki.exp import setup_tracking
 from tsumiki.knowledge import load_ng_patterns
-from tsumiki.knowledge.loader import load_ng_patterns_from_path
+from tsumiki.knowledge.loader import load_ng_patterns_auto
 from tsumiki.llm import LLMSettings, build_client
 from tsumiki.runner.phase2 import (
     _build_synth_only_samples,
@@ -122,8 +122,12 @@ def main() -> int:
 
     clauses = load_clean_clauses(CLEAN_JSONL)
     if args.ng_patterns_path is not None:
-        book = load_ng_patterns_from_path(args.ng_patterns_path)
-        print(f"[setup] NG patterns loaded from {args.ng_patterns_path} (version={book.version})")
+        book = load_ng_patterns_auto(args.ng_patterns_path)
+        kind = "skills-dir" if args.ng_patterns_path.is_dir() else "yaml"
+        print(
+            f"[setup] NG patterns loaded from {args.ng_patterns_path} "
+            f"(version={book.version}, format={kind})"
+        )
     else:
         book = load_ng_patterns("nda")
         print(f"[setup] NG patterns loaded from default (version={book.version})")

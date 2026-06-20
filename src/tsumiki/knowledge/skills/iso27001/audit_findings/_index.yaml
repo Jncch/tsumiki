@@ -1,0 +1,31 @@
+domain: iso27001
+source_version: 0.1.0
+schema_version: 1
+skills:
+- id: iso_access_least_privilege_missing
+  file: iso_access_least_privilege_missing.md
+  name: 最小権限の原則の不備
+- id: iso_access_review_missing
+  file: iso_access_review_missing.md
+  name: アクセス権の定期見直し手順の欠落
+- id: iso_log_retention_undefined
+  file: iso_log_retention_undefined.md
+  name: ログの保持期間と改ざん防止策の不明確
+- id: iso_backup_test_missing
+  file: iso_backup_test_missing.md
+  name: バックアップ復元テストの未規定
+- id: iso_incident_response_plan_missing
+  file: iso_incident_response_plan_missing.md
+  name: インシデント対応手順の未整備
+- id: iso_supplier_risk_assessment_missing
+  file: iso_supplier_risk_assessment_missing.md
+  name: 供給者・委託先のリスク評価不在
+- id: iso_data_classification_missing
+  file: iso_data_classification_missing.md
+  name: 情報資産の機密区分の未定義
+- id: iso_secure_disposal_missing
+  file: iso_secure_disposal_missing.md
+  name: 安全な廃棄手順の不在
+- id: iso_change_management_missing
+  file: iso_change_management_missing.md
+  name: 変更管理の承認・記録手順の欠落

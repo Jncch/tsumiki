@@ -1,0 +1,3 @@
+{"name": "empty_outcomes", "input": {"outcomes": []}, "expected": {"n_samples": 0, "modification_success_rate": 0.0, "negative_transfer_rate": 0.0}}
+{"name": "single_full_success", "input": {"outcomes": [{"target_removed": true, "new_ng_introduced": false, "truth_pattern_ids": ["pat_a"], "detected_after": []}]}, "expected": {"n_samples": 1, "modification_success_rate": 1.0, "negative_transfer_rate": 0.0}}
+{"name": "single_full_failure", "input": {"outcomes": [{"target_removed": false, "new_ng_introduced": true, "truth_pattern_ids": ["pat_a"], "detected_after": ["pat_a", "pat_b"]}]}, "expected": {"n_samples": 1, "modification_success_rate": 0.0, "negative_transfer_rate": 1.0}}

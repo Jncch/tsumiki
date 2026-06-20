@@ -1,0 +1,167 @@
+version: 0.3.0-v3
+contract_type: nda
+last_updated: '2026-06-10'
+maintainer: tsumiki
+topics:
+- id: definition
+  name: 定義
+- id: purpose
+  name: 目的
+- id: secrecy
+  name: 秘密保持義務
+- id: disclosure_exception
+  name: 開示例外
+- id: intellectual_property
+  name: 知的財産権
+- id: deliverable
+  name: 成果物・派生資料
+- id: liability
+  name: 損害賠償・違約金
+- id: jurisdiction
+  name: 紛争解決・管轄・準拠法
+- id: duration
+  name: 有効期間・終了・解除
+- id: survival
+  name: 存続
+- id: return_destroy
+  name: 返還・廃棄
+- id: confirmation
+  name: 確認事項
+- id: other
+  name: その他
+patterns:
+- id: nda_scope_overbroad
+  name: 秘密情報の範囲過大
+  description: '検出すべき: 秘密情報の定義条項に「一切の情報」「全ての情報」のような無限定範囲、または既知情報・公知情報・第三者からの正当取得情報の除外規定が無い。
+
+    紛らわしい: 厳格な秘密指定手続（書面/電磁的形式での指定、口頭開示後 30 日以内の書面通知等）と除外規定（既知/公知/正当取得）が定義条項に明示されている場合は該当しない。
+
+    '
+  applicable_topics:
+  - definition
+  excerpt_examples:
+  - 本契約において「秘密情報」とは、開示当事者から受領当事者に対して開示された一切の情報をいう。
+  severity: high
+  references:
+  - 経済産業省 営業秘密管理指針
+  - 不正競争防止法 2条6項
+- id: nda_duration_unbounded
+  name: 秘密保持期間の無期限・過長
+  description: '検出すべき: 秘密保持義務の期間が「期間の定めなく」「無期限」「永久」等で示される、または営業秘密性が消滅した後も継続する不合理な長期間が定められている。
+
+    紛らわしい: 「3 年間」「5 年間」「契約終了後 2 年間」等の明示的・合理的な期間定めは該当しない。
+
+    '
+  applicable_topics:
+  - duration
+  - survival
+  - secrecy
+  excerpt_examples:
+  - 受領者は、本契約終了後も期間の定めなく秘密情報を保持しなければならない。
+  severity: high
+  references:
+  - 経済産業省 秘密情報の保護ハンドブック
+- id: nda_purpose_undefined
+  name: 利用目的の不明確
+  description: '検出すべき: 秘密情報の利用目的（合意目的）が「本件」「関連する目的」等の抽象表現で、具体的範囲が読み取れない。または目的の定義自体が欠落している。
+
+    紛らわしい: 「〇〇プロジェクトのための事前検討」「特定の業務委託に関する協議」等、具体的事業・取引名が明示されていれば該当しない。
+
+    '
+  applicable_topics:
+  - purpose
+  - secrecy
+  excerpt_examples:
+  - 受領者は本件に関連する目的のために秘密情報を利用できる。
+  severity: medium
+  references:
+  - JIPDEC 秘密情報の取扱いに関するガイドブック
+- id: nda_disclosure_exception_missing
+  name: 法令・規制当局等への開示例外不在
+  description: '検出すべき: 第三者開示禁止の規定があるにもかかわらず、裁判所・行政・規制当局からの開示要求、弁護士・公認会計士等の専門家への必要な開示、公知情報の除外などの例外規定が欠落している。
+
+    紛らわしい: 「法令により開示を要求された場合」「監督官庁の要請による場合」「専門家への開示」等の例外規定が明示されていれば該当しない。
+
+    '
+  applicable_topics:
+  - secrecy
+  - disclosure_exception
+  excerpt_examples:
+  - 受領者は、いかなる第三者に対しても秘密情報を開示してはならない。
+  severity: high
+  references:
+  - 民事訴訟法 220条
+- id: nda_remedy_imbalanced
+  name: 損害賠償・違約金の不均衡
+  description: '検出すべき: 受領者側のみに過大な違約金・損害賠償上限なしを課し、開示者側の責任は限定または免除されている。または双方向 NDA であるべき場面で一方向的な責任設計になっている。
+
+    紛らわしい: 双方が同等の責任を負う規定、合理的な賠償上限がある規定は該当しない。
+
+    '
+  applicable_topics:
+  - liability
+  - confirmation
+  excerpt_examples:
+  - 受領者が本契約に違反した場合、違約金として金1億円を直ちに支払うものとする。
+  severity: high
+  references:
+  - 民法 420条 421条
+- id: nda_jurisdiction_one_sided
+  name: 準拠法・管轄の欠落または一方的指定
+  description: '検出すべき: 準拠法・合意管轄が記載されていない、または開示者側に著しく有利な専属管轄（遠隔地、開示者本店所在地、開示者指定等）を指定している。国際取引で準拠法が不明確な場合も含む。
+
+    紛らわしい: 中立的な合意管轄（東京地方裁判所等）、双方の本店所在地のどちらかを選択可能な規定は該当しない。
+
+    '
+  applicable_topics:
+  - jurisdiction
+  excerpt_examples:
+  - 本契約に関する紛争は、開示者の指定する裁判所を専属管轄とする。
+  severity: medium
+  references:
+  - 民事訴訟法 11条
+- id: nda_return_destroy_missing
+  name: 返還・廃棄義務の不在または確認手段なし
+  description: '検出すべき: 契約終了時・開示者の要求時に秘密情報の返還または廃棄を行う義務が無い、または廃棄証明・確認の手段（証明書発行等）が定められていない。
+
+    紛らわしい: 「返還又は廃棄」「廃棄証明書を発行」等の具体的規定がある場合は該当しない。返還・廃棄を主題としない条項では判定対象外。
+
+    '
+  applicable_topics:
+  - return_destroy
+  excerpt_examples:
+  - 受領者は秘密情報を適切に管理するものとする。
+  severity: medium
+  references:
+  - 経済産業省 秘密情報の保護ハンドブック
+- id: nda_derivative_undefined
+  name: 派生情報・成果物の取扱い未定義
+  description: '検出すべき: 秘密情報を基に作成した派生資料・分析結果・成果物の取扱い（秘密情報該当性、帰属、返還義務）が定められていない。受領者が独自に作成した文書の扱いが争点になる。
+
+    紛らわしい: 「派生情報も秘密情報に含む」「成果物の帰属は開示者に属する」等の明示があれば該当しない。
+
+    '
+  applicable_topics:
+  - definition
+  - intellectual_property
+  - deliverable
+  excerpt_examples:
+  - （派生情報・成果物に関する条項なし）
+  severity: medium
+  references:
+  - 経済産業省 営業秘密管理指針
+- id: nda_survival_missing
+  name: 存続条項の欠落
+  description: '検出すべき: 契約終了後にどの義務が存続するか（秘密保持義務、損害賠償義務、管轄等）が明示されていない。終了後の義務範囲を巡って解釈が分かれる。
+
+    紛らわしい: 「本契約終了後も第〇条の義務は存続する」「秘密保持義務は契約終了後 N 年間継続する」等の明示があれば該当しない。
+
+    '
+  applicable_topics:
+  - duration
+  - survival
+  excerpt_examples:
+  - 本契約は、契約期間の満了をもって終了する。
+  severity: low
+  references:
+  - 経済産業省 秘密情報の保護ハンドブック

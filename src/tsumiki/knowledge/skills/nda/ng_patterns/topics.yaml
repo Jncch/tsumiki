@@ -1,0 +1,29 @@
+source_version: 0.3.0
+last_updated: '2026-06-10'
+topics:
+- id: definition
+  name: 定義
+- id: purpose
+  name: 目的
+- id: secrecy
+  name: 秘密保持義務
+- id: disclosure_exception
+  name: 開示例外
+- id: intellectual_property
+  name: 知的財産権
+- id: deliverable
+  name: 成果物・派生資料
+- id: liability
+  name: 損害賠償・違約金
+- id: jurisdiction
+  name: 紛争解決・管轄・準拠法
+- id: duration
+  name: 有効期間・終了・解除
+- id: survival
+  name: 存続
+- id: return_destroy
+  name: 返還・廃棄
+- id: confirmation
+  name: 確認事項
+- id: other
+  name: その他

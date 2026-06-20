@@ -1,0 +1,21 @@
+source_version: 0.1.0
+last_updated: '2026-06-19'
+topics:
+- id: access
+  name: アクセス制御
+- id: logging
+  name: ログ取得・監視
+- id: backup
+  name: バックアップ・復旧
+- id: incident
+  name: インシデント対応
+- id: supplier
+  name: 供給者・委託先管理
+- id: classification
+  name: 情報の分類
+- id: disposal
+  name: 安全な廃棄
+- id: change
+  name: 変更管理
+- id: other
+  name: その他

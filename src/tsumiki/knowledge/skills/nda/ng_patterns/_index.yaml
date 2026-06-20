@@ -1,0 +1,31 @@
+domain: nda
+source_version: 0.3.0
+schema_version: 1
+skills:
+- id: nda_scope_overbroad
+  file: nda_scope_overbroad.md
+  name: 秘密情報の範囲過大
+- id: nda_duration_unbounded
+  file: nda_duration_unbounded.md
+  name: 秘密保持期間の無期限・過長
+- id: nda_purpose_undefined
+  file: nda_purpose_undefined.md
+  name: 利用目的の不明確
+- id: nda_disclosure_exception_missing
+  file: nda_disclosure_exception_missing.md
+  name: 法令・規制当局等への開示例外不在
+- id: nda_remedy_imbalanced
+  file: nda_remedy_imbalanced.md
+  name: 損害賠償・違約金の不均衡
+- id: nda_jurisdiction_one_sided
+  file: nda_jurisdiction_one_sided.md
+  name: 準拠法・管轄の欠落または一方的指定
+- id: nda_return_destroy_missing
+  file: nda_return_destroy_missing.md
+  name: 返還・廃棄義務の不在または確認手段なし
+- id: nda_derivative_undefined
+  file: nda_derivative_undefined.md
+  name: 派生情報・成果物の取扱い未定義
+- id: nda_survival_missing
+  file: nda_survival_missing.md
+  name: 存続条項の欠落

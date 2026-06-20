@@ -1,0 +1,26 @@
+id: modification_success_v1
+domain: nda
+task_class: detect_and_modify
+type: deterministic
+input_signature:
+  inputs:
+  - - target_document
+    - target
+  outputs:
+  - - findings
+    - ng_findings_v1
+  - - modified_document
+    - modified_text_v1
+output_metrics:
+- modification_success_rate
+- negative_transfer_rate
+- per_pattern_success
+guardrails: []
+sources:
+- src/tsumiki/eval/modification.py (Phase 1〜4)
+- docs/experiments/phase2_baseline_v0_2026-06-10.md
+- docs/experiments/phase5b_skills_2026-06-19.md
+generated_at: '2026-06-19'
+approved_by: jncch
+notes: Phase 1〜4 の compute_modification_report を Q3=B 決定関数として移植. Agent Skills 経由のロード前提.
+  Phase 5b で paired diff +0.261 完全一致を確認済み.
