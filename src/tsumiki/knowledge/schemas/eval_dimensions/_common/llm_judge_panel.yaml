@@ -1,0 +1,50 @@
+# Phase 9b _common 評価軸: LLM 複数批評パネル
+# 異なるプロバイダ (Anthropic + Gemini + Azure 等) で同じ基準を判定し多数決を取る.
+# CLAUDE.md §9 「開放タスクではペアワイズ・複数批評パネル」と整合.
+id: llm_judge_panel
+label: LLM 複数批評パネル
+type: llm_judge_panel
+applicable_task_classes:
+  - generate
+  - compose
+  - summarize
+  - transform
+  - infer
+applicable_output_kinds:
+  - semi_open
+  - open
+description: 異なるプロバイダの LLM で同じ基準を判定し多数決を取る (報酬ハッキング緩和)
+parameters:
+  - name: criteria
+    type: str
+    required: true
+    description: 判定基準の自然言語記述
+  - name: panel_providers
+    type: list
+    default:
+      - openai_compatible
+      - azure_openai
+    description: パネル参加プロバイダのリスト
+  - name: vote_threshold
+    type: float
+    default: 0.5
+    description: 多数決の合格しきい値 (overall passed の割合)
+prompt_template: |
+  以下の基準で出力を評価してください.
+
+  基準: {criteria}
+
+  対象出力:
+  {output}
+
+  評価結果を JSON で次のキー構造で返してください:
+  {{"passed": true|false, "reason": "1 行で理由"}}
+guardrails:
+  - panel_3
+  - cross_provider_diversity
+typical_success_example:
+  output: "ブランドガイドラインに沿った投稿文"
+  expected: {score: 1.0, passed: true}
+typical_failure_example:
+  output: "ガイドラインを無視した投稿文"
+  expected: {score: 0.0, passed: false}

@@ -1,0 +1,47 @@
+# Phase 9b _common 評価軸: LLM ペアワイズ判定
+# A vs B のどちらが基準に近いかを LLM に問い、Bradley-Terry で集計する.
+# CLAUDE.md §9 「開放タスクではペアワイズ」と整合.
+id: llm_judge_pairwise
+label: LLM ペアワイズ判定
+type: llm_judge_pairwise
+applicable_task_classes:
+  - generate
+  - compose
+  - summarize
+  - transform
+  - infer
+applicable_output_kinds:
+  - semi_open
+  - open
+description: A vs B のペアワイズ判定で Bradley-Terry 集計を取る
+parameters:
+  - name: criteria
+    type: str
+    required: true
+    description: 判定基準の自然言語記述
+  - name: min_samples
+    type: int
+    default: 6
+    description: 統計的有意性のための最小サンプル数
+prompt_template: |
+  以下の 2 つの出力を比較し、{criteria} の観点でどちらが優れているか答えてください.
+
+  出力 A:
+  {output_a}
+
+  出力 B:
+  {output_b}
+
+  次の JSON 形式で返してください:
+  {{"winner": "A"|"B"|"tie", "reason": "1 行で理由"}}
+guardrails:
+  - bradley_terry_aggregation
+  - min_samples_6
+typical_success_example:
+  output_a: "良いサンプル"
+  output_b: "悪いサンプル"
+  expected: {winner: "A"}
+typical_failure_example:
+  output_a: ""
+  output_b: ""
+  expected: {winner: "tie"}

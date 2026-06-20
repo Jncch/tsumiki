@@ -1,0 +1,49 @@
+# Phase 9b _common 評価軸: 形式妥当性
+# 出力が想定スキーマ (JSON / YAML / 特定パターン) として有効か判定する.
+id: format_validity
+label: 形式妥当性
+type: deterministic
+applicable_task_classes:
+  - generate
+  - compose
+  - extract
+  - transform
+applicable_output_kinds:
+  - closed
+  - semi_open
+description: 出力が JSON/YAML/regex のいずれかで有効な形式かを判定する
+parameters:
+  - name: format_type
+    type: str
+    required: true
+    description: "json / yaml / regex のいずれか"
+  - name: pattern
+    type: str
+    default: ""
+    description: "format_type=regex のときの正規表現"
+implementation_template: |
+  import json
+  import re
+
+  import yaml as _yaml
+
+  def evaluate(output: str, format_type: str = "{format_type}", pattern: str = r"{pattern}") -> dict:
+      try:
+          if format_type == "json":
+              json.loads(output)
+          elif format_type == "yaml":
+              _yaml.safe_load(output)
+          elif format_type == "regex":
+              if not re.match(pattern, output, flags=re.DOTALL):
+                  raise ValueError("regex did not match")
+          else:
+              raise ValueError(f"unsupported format_type: {{format_type}}")
+          return {{"score": 1.0, "passed": True, "error": None}}
+      except Exception as e:
+          return {{"score": 0.0, "passed": False, "error": str(e)}}
+typical_success_example:
+  output: '{"key": "value"}'
+  expected: {score: 1.0, passed: true}
+typical_failure_example:
+  output: "not json"
+  expected: {score: 0.0, passed: false}

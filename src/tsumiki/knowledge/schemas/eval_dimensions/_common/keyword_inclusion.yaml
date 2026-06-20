@@ -1,0 +1,42 @@
+# Phase 9b _common 評価軸: キーワード包含
+# 必須キーワードの出現と禁止キーワードの非出現を判定する.
+id: keyword_inclusion
+label: キーワード包含
+type: deterministic
+applicable_task_classes:
+  - generate
+  - compose
+  - summarize
+  - transform
+  - modify
+applicable_output_kinds:
+  - closed
+  - semi_open
+  - open
+description: 必須キーワードの出現と禁止キーワードの非出現を確認する
+parameters:
+  - name: required_keywords
+    type: list
+    default: []
+    description: 必須キーワードのリスト
+  - name: forbidden_keywords
+    type: list
+    default: []
+    description: 禁止キーワードのリスト
+implementation_template: |
+  def evaluate(output: str, required_keywords: list = {required_keywords}, forbidden_keywords: list = {forbidden_keywords}) -> dict:
+      missing = [k for k in required_keywords if k not in output]
+      present_forbidden = [k for k in forbidden_keywords if k in output]
+      passed = not missing and not present_forbidden
+      return {{
+          "score": 1.0 if passed else 0.0,
+          "passed": passed,
+          "missing_required": missing,
+          "present_forbidden": present_forbidden,
+      }}
+typical_success_example:
+  output: "新商品Aを発売します"
+  expected: {score: 1.0, passed: true}
+typical_failure_example:
+  output: "雑なテキスト"
+  expected: {score: 0.0, passed: false}

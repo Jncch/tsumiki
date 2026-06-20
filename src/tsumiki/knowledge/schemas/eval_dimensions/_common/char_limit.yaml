@@ -1,0 +1,36 @@
+# Phase 9b _common 評価軸: 文字数制限
+# ドメイン非依存. generate / compose / summarize / transform 系で使う.
+id: char_limit
+label: 文字数制限
+type: deterministic
+applicable_task_classes:
+  - generate
+  - compose
+  - summarize
+  - transform
+  - modify
+applicable_output_kinds:
+  - closed
+  - semi_open
+  - open
+description: 出力文字数が下限と上限の範囲内かを判定する
+parameters:
+  - name: min_chars
+    type: int
+    default: 0
+    description: 下限文字数 (inclusive)
+  - name: max_chars
+    type: int
+    required: true
+    description: 上限文字数 (inclusive)
+implementation_template: |
+  def evaluate(output: str, min_chars: int = {min_chars}, max_chars: int = {max_chars}) -> dict:
+      n = len(output)
+      passed = min_chars <= n <= max_chars
+      return {{"score": 1.0 if passed else 0.0, "char_count": n, "passed": passed}}
+typical_success_example:
+  output: "サンプルテキスト 50 文字以内のごく短い例。"
+  expected: {score: 1.0, passed: true}
+typical_failure_example:
+  output: ""
+  expected: {score: 0.0, passed: false}

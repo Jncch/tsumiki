@@ -44,6 +44,9 @@ select = ["E", "F", "I", "B", "UP"]
 [tool.ruff.lint.per-file-ignores]
 "src/tsumiki/policy/agentsquare/*.py" = ["E501"]
 "src/tsumiki/policy/agentsquare/**/*.py" = ["E501"]
+# Phase 9b: 対話 REPL の日本語 prompt 文字列は自然に 100 文字超.
+# 折り返すと読みづらく、ユーザーに見える Q&A 体験が劣化するため許容.
+"src/tsumiki/goal/dialog.py" = ["E501"]
 
 [tool.pyright]
 include = ["src", "tests", "experiments"]
