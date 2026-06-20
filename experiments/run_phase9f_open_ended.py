@@ -166,8 +166,12 @@ def main() -> int:
     llm = LLMSettings.from_env()
     print(f"[llm] provider={llm.provider} model={llm.model}")
     client = build_client(llm)
-    text_chat_fn = make_openai_chat_fn(client, llm)
-    json_chat_fn = make_openai_json_chat_fn(client, llm)
+    text_chat_fn = make_openai_chat_fn(
+        client, llm.model, llm.temperature, args.seed
+    )
+    json_chat_fn = make_openai_json_chat_fn(
+        client, llm.model, llm.temperature, args.seed
+    )
 
     # 5) E2EConfig 組み立て (open-ended パスのみ使用)
     cfg = E2EConfig(
