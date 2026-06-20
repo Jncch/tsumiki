@@ -452,6 +452,38 @@ README にも β 機能として明記する予定です。中途半端な状態
 | examples | `examples/nda/` + `examples/iso27001/` (リファレンス実装) |
 | ドキュメント | `docs/experiments/phase{5a〜7e}_*.md` (検証経過の全記録) |
 
+### 7.4 ローカル ollama 実走 (2026-06-20)
+
+本稿公開前の最終 sanity として、`examples/{nda,iso27001}/run.sh --use-compose` を
+ローカル ollama (Qwen2.5-14B-Q4, qwen25-14b-ctx8k タグ) で実走しました。
+
+| ドメイン | reuse | zerobase | paired_diff | gate (±0.05) | 基準値との差 |
+| --- | --- | --- | --- | --- | --- |
+| NDA | 0.550 (40/40) | 0.289 (45/45) | **+0.261** | ◯ | 0.000 |
+| ISO27001 | 0.410 (39/42) | 0.381 (42/42) | **+0.029** | ◯ | 0.000 |
+
+seed=42 + temperature=0 で決定論的に再現するという建付け通り、Phase 5c / Phase 6 の数値と
+完全一致しました。MLflow run_id は実行報告書 [`phase8_execution_2026-06-20.md`](https://github.com/Jncch/tsumiki/blob/main/docs/experiments/phase8_execution_2026-06-20.md)
+に記載しています。
+
+`--use-compose` 経由で観測された AgentSquare 探索結果 (補助情報モード):
+
+| 項目 | 値 |
+| --- | --- |
+| selected_modules (両ドメイン共通) | `{planning: PlanningEnhanced, reasoning: IO, tooluse: None, memory: None}` |
+| search_score | NDA 0.550 / ISO27001 0.410 (reuse success_rate と一致) |
+| search_depth | 1 |
+
+両ドメインで同一構成が選ばれたのは、archives と prompts が AgentSquare 上流の alfworld 由来の
+ままだから、というのが正直な理由です。domain 適応 (NDA / ISO27001 用 archives 整備) は Phase 9+ の
+最優先事項に置いています。一方で「alfworld 由来でもパス自体は通る」ことが確認できたのは、
+ChatFn / JsonChatFn / benchmark_fn の DI 設計がドメイン非依存に機能している実地確証になりました。
+
+なお `reuse` 試行中に ollama 側で `llama-server chat error 500 (Failed to parse input)` が
+散発しました (NDA 5 件、ISO27001 synth 3 件 + modify 3 件)。Phase 5a-3 で導入したサンプル単位
+skip ガードが効き、バッチ全体の中断には至っていません。同じ事象はクラウドモデル (GPT-5.4) では
+未観測なので、ollama の grammar parser 個別の問題と整理しています。
+
 ## 8. 結論
 
 ### 8.1 3 つの問いへの答え
@@ -491,7 +523,7 @@ README にも β 機能として明記する予定です。中途半端な状態
 | 1 seed のみ | seed=42 のみで CI を取れていない | 3 seed CI は Phase 9+ |
 | generator パスは β | qwen 14B では生成コードの意味的品質が不足 (Phase 6 で観測) | 強モデル (GPT-5.4) での generator 改修は Phase 9+ |
 | 評価は決定関数のみ | LLM judge + 人手較正は未実施 | 開放タスクへの拡張は Phase 9+ |
-| `--use-compose` 経由の paired_diff 実走 | 本稿執筆時点でユーザー実走待ち | 数値は β として記録予定 |
+| `--use-compose` 経由の compose 探索結果 | alfworld 由来 archives のままなので両ドメイン同一構成を選んだ (§7.4 参照) | domain 適応 archives は Phase 9+ |
 | ISO27001 clean clauses は手書き合成 | 実規程テンプレートとの分布乖離リスク | 第三者の追試では実データ照合が望ましい |
 
 次の問いは 3 つです。

@@ -14,6 +14,9 @@ var/
 mlruns/
 mlartifacts/
 
+# examples 実走出力 (試走ごとに変動。README にコミットしない旨明記)
+examples/*/outcomes/
+
 # Python
 __pycache__/
 *.py[cod]
