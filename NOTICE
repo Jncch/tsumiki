@@ -1,0 +1,15 @@
+tsumiki
+Copyright 2026 tsumiki authors
+
+Licensed under the Apache License, Version 2.0 (the "License");
+see LICENSE for the full text.
+
+This product includes software derived from AgentSquare
+(https://github.com/tsinghua-fib-lab/AgentSquare), licensed under the
+Apache License, Version 2.0. See THIRD_PARTY_LICENSES/AgentSquare/ for
+the upstream LICENSE text and attribution.
+
+Upstream attribution (AgentSquare):
+  Copyright (c) Tsinghua University FIB Lab and contributors.
+  Paper: "AgentSquare: Automatic LLM Agent Search in Modular Design Space"
+  https://arxiv.org/abs/2410.06153
