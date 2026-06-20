@@ -3,6 +3,8 @@ name = "tsumiki"
 version = "0.0.1"
 description = "再利用可能な部品を合成するタスク実行エージェント自動生成の最小検証"
 readme = "README.md"
+license = { text = "Apache-2.0" }
+license-files = ["LICENSE", "NOTICE"]
 requires-python = "==3.13.*"
 dependencies = [
     "openai>=1.55,<2.0",
@@ -37,6 +39,11 @@ target-version = "py313"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
+# Phase 7e-2/3: vendored AgentSquare コードは上流の英語プロンプト長行 (E501) を許容.
+# 行長違反は alfworld タスク固有プロンプトをそのまま保持しているため発生.
+[tool.ruff.lint.per-file-ignores]
+"src/tsumiki/policy/agentsquare/*.py" = ["E501"]
+"src/tsumiki/policy/agentsquare/**/*.py" = ["E501"]
 
 [tool.pyright]
 include = ["src", "tests", "experiments"]
@@ -48,3 +55,10 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra"
+# Phase 7e-3: vendored AgentSquare prompts に含まれる alfworld archive code 文字列の
+# invalid escape sequence (\s, \{ 等) は上流リテラルを温存しているため警告抑制.
+filterwarnings = [
+    # vendored AgentSquare prompts に含まれる alfworld archive code 文字列の
+    # invalid escape sequence (\s, \{ 等) は実行されないが import 時に警告される.
+    "ignore:invalid escape sequence:SyntaxWarning",
+]

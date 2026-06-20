@@ -42,3 +42,4 @@ dist/
 # docs（直下の md ファイルは下書きとしてコミットしない。サブディレクトリ docs/experiments/ は対象外）
 docs/*.md
 !docs/agent_reuse_verification_plan.md
+!docs/agentsquare_vendoring.md

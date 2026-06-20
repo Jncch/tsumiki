@@ -1,0 +1,25 @@
+# Phase 6 / 7b 試走で観測された TaskSpec のスナップショット.
+# 実行時は run.sh が --goal の自然言語入力から parser/parser.py で
+# このスペックを再生成する. 本ファイルは「期待される構造」のドキュメント.
+
+domain: iso27001
+task_class: detect_and_modify
+raw_goal: "ISO27001 の運用文書をチェックして統制不備を是正したい"
+
+input_roles:
+  - name: target_document
+    role: target_document
+
+knowledge:
+  source_type: skills_dir
+  source_path: src/tsumiki/knowledge/skills/iso27001/audit_findings
+
+outputs:
+  - name: findings
+    schema_id: ng_finding_list_v1
+  - name: modified_document
+    schema_id: modified_document_v1
+
+evaluator:
+  id: audit_findings_success_v1
+  reused_from: src/tsumiki/eval/generated/iso27001/detect_and_modify/audit_findings_success_v1
