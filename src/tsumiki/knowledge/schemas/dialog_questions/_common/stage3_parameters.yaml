@@ -1,0 +1,26 @@
+# Phase 9c (2026-06-21): Stage 3 = 評価器ドラフトを組み立てる質問群.
+# 各軸のパラメータ Q は EvalDimension.parameters から動的に生成するため
+# このファイルには含めない. ここには「全軸共通の静的 Q」を置く.
+
+stage: stage3
+title: 評価器ドラフトの組み立て
+questions:
+  # Q11: 軸の重み付け
+  - id: weights_mode
+    prompt: "Q11. 軸の重み付けは均等で良いですか? (equal=均等 / custom=各軸ごとに指定)"
+    expected_type: literal
+    allowed_values: [equal, custom]
+    description: hybrid evaluator のとき、各軸スコアの合算式の係数を決める
+
+  # Q12: 評価の厳しさ
+  - id: strictness
+    prompt: "Q12. 評価の厳しさは? (strict=FN を厳しく / lenient=FP を厳しく / balanced=均等)"
+    expected_type: literal
+    allowed_values: [strict, lenient, balanced]
+    description: false negative (見落とし) と false positive (誤検出) のどちらを厳しくするか
+
+  # Q13: 評価器ドラフトの最終確認
+  - id: evaluator_draft_confirm
+    prompt: "Q13. 評価器ドラフトはこれで進めますか? (yes/no)"
+    expected_type: yes_no
+    description: yes でドラフト確定. no で stage2 から再選択

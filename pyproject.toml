@@ -47,6 +47,9 @@ select = ["E", "F", "I", "B", "UP"]
 # Phase 9b: 対話 REPL の日本語 prompt 文字列は自然に 100 文字超.
 # 折り返すと読みづらく、ユーザーに見える Q&A 体験が劣化するため許容.
 "src/tsumiki/goal/dialog.py" = ["E501"]
+# Phase 9c: 評価器コード生成は文字列リテラルでの組み立てが主体で長行が発生.
+"src/tsumiki/eval/core/dialog_generator.py" = ["E501"]
+"tests/test_phase9c_dialog_generator.py" = ["E501"]
 
 [tool.pyright]
 include = ["src", "tests", "experiments"]

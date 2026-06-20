@@ -29,6 +29,14 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from tsumiki.eval.core.dialog_generator import (
+    DimensionParameters,
+    EvaluatorDraft,
+    StrictnessLevel,
+    build_evaluator_draft,
+    extract_dimension_parameters,
+    resolve_weights,
+)
 from tsumiki.goal.specs import (
     InputRole,
     KnowledgeSource,
@@ -39,6 +47,7 @@ from tsumiki.knowledge.schemas.dialog_questions import (
     DialogQuestion,
     DialogQuestionsBundle,
     load_all_dialog_questions,
+    load_dialog_questions,
 )
 from tsumiki.knowledge.schemas.eval_dimensions import (
     EvalDimension,
@@ -88,7 +97,8 @@ class DialogState:
     task_spec: TaskSpec | None = None
     candidate_dimensions: tuple[EvalDimension, ...] = ()
     selected_dimensions: tuple[EvalDimension, ...] = ()
-    eval_spec_draft: dict | None = None  # Phase 9c で本実装
+    # Phase 9c で型を dict から EvaluatorDraft に変更.
+    eval_spec_draft: EvaluatorDraft | None = None
     sample_judgments: list[dict] = field(default_factory=list)  # Phase 9d
     approved: bool = False
     approved_by: str = ""
@@ -325,20 +335,101 @@ def stage3_draft_evaluator(
     input_fn: InputFn,
     output_fn: OutputFn,
 ) -> DialogState:
-    """評価器コード案の提示 + ユーザー確認.
+    """評価器コード案の提示 + ユーザー確認 (Phase 9c 本実装).
 
-    Phase 9c で本実装. 9b では「軸の組合せ確認」だけ.
+    フロー:
+    1. 選択された各評価軸について `EvalDimension.parameters` を動的 Q で抽出
+    2. LLM judge 系の軸は加えて判定基準 (criteria) を自然言語で受け取る
+    3. 重み付け (Q11: equal/custom) を確定
+    4. 厳しさ (Q12: strict/lenient/balanced) を確定
+    5. EvaluatorDraft を組み立てユーザーに概要を提示
+    6. 確認 (Q13: yes/no) → state.eval_spec_draft に格納
     """
+    if state.task_spec is None:
+        raise RuntimeError("stage1 を先に通してください")
     if not state.selected_dimensions:
         output_fn("=== Stage 3: 評価器ドラフト (軸未選択のためスキップ) ===")
         return state
-    output_fn("=== Stage 3: 評価器ドラフト (Phase 9c で本実装) ===")
-    output_fn(f"  選択軸: {[d.id for d in state.selected_dimensions]}")
-    state.eval_spec_draft = {
-        "dimensions": [d.id for d in state.selected_dimensions],
-        "draft_note": "Phase 9c で本実装. 現状は軸 ID のリストのみ.",
-    }
-    _log(state, "stage3_draft_evaluator", state.eval_spec_draft, config.timestamp_fn())
+
+    output_fn("=== Stage 3: 評価器ドラフトの組み立て (Phase 9c) ===")
+    domain = state.task_spec.domain
+
+    # 1. 各軸のパラメータ + judge 基準を抽出
+    dimension_params: list[DimensionParameters] = []
+    for dim in state.selected_dimensions:
+        params = extract_dimension_parameters(
+            dim, state.raw_goal, input_fn, output_fn, json_chat_fn
+        )
+        dimension_params.append(params)
+    dimensions_tuple = tuple(dimension_params)
+
+    # 2. 静的 Q (Q11=重み, Q12=厳しさ, Q13=確認) を YAML からロード
+    stage3 = load_dialog_questions(config.questions_root, "stage3", domain=domain)
+    q_by_id = {q.id: q for q in stage3.questions}
+    q_weights = q_by_id["weights_mode"]
+    q_strictness = q_by_id["strictness"]
+    q_confirm = q_by_id["evaluator_draft_confirm"]
+
+    # 3. 重み付け
+    weights_mode_ans = _ask(q_weights, state, json_chat_fn, input_fn, output_fn)
+    state.answers[q_weights.id] = weights_mode_ans
+    weights = resolve_weights(
+        dimensions_tuple, weights_mode_ans, input_fn, output_fn  # type: ignore[arg-type]
+    )
+
+    # 4. 厳しさ
+    strictness_ans = _ask(q_strictness, state, json_chat_fn, input_fn, output_fn)
+    state.answers[q_strictness.id] = strictness_ans
+    strictness: StrictnessLevel = strictness_ans  # type: ignore[assignment]
+
+    # 5. ドラフト組み立て
+    dim_spec_map = {d.id: d for d in state.selected_dimensions}
+    draft = build_evaluator_draft(
+        task_spec=state.task_spec,
+        dimensions=dimensions_tuple,
+        dimension_specs=dim_spec_map,
+        weights=weights,
+        strictness=strictness,
+    )
+
+    # 6. 概要提示 + 確認
+    output_fn("  --- 評価器ドラフト概要 ---")
+    output_fn(f"    type: {draft.evaluator_type}")
+    output_fn(f"    軸: {[d.dimension_id for d in dimensions_tuple]}")
+    output_fn(f"    重み: {draft.weights}")
+    output_fn(f"    厳しさ: {draft.strictness}")
+    output_fn(f"    guardrails: {list(draft.guardrails)}")
+    output_fn(f"    implementation ソース: {len(draft.implementation_source.splitlines())} 行")
+
+    confirm_ans = _ask(q_confirm, state, None, input_fn, output_fn)
+    state.answers[q_confirm.id] = confirm_ans
+    if confirm_ans.lower() not in ("yes", "y"):
+        output_fn("  → ドラフト差し戻し. stage2 から再選択を推奨します")
+        state.eval_spec_draft = None
+        _log(
+            state,
+            "stage3_draft_evaluator",
+            {"draft_confirmed": False, "answers": {q_weights.id: weights_mode_ans,
+                                                   q_strictness.id: strictness_ans}},
+            config.timestamp_fn(),
+        )
+        return state
+
+    state.eval_spec_draft = draft
+    _log(
+        state,
+        "stage3_draft_evaluator",
+        {
+            "draft_confirmed": True,
+            "dimensions": [d.dimension_id for d in dimensions_tuple],
+            "weights": weights,
+            "strictness": strictness,
+            "guardrails": list(draft.guardrails),
+            "evaluator_type": draft.evaluator_type,
+        },
+        config.timestamp_fn(),
+    )
+    output_fn("  → ドラフト確定")
     return state
 
 

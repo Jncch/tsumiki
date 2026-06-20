@@ -390,7 +390,15 @@ def test_run_dialog_full_walkthrough(tmp_path: Path) -> None:
         "result:result_v1",
         "",
         "char_limit,keyword_inclusion",
-        "yes",
+        # Phase 9c で stage3 が本実装になったため、各軸パラメータ + 重み + 厳しさ + 確認を追加
+        "",         # char_limit min_chars (default)
+        "150",      # char_limit max_chars
+        "新発売",   # keyword_inclusion required_keywords
+        "",         # keyword_inclusion forbidden_keywords (default)
+        "equal",    # Q11 weights_mode
+        "balanced", # Q12 strictness
+        "yes",      # Q13 draft confirm
+        "yes",      # stage6 approve
     ]
     input_fn, _ = _scripted_input(answers)
     output_fn, _ = _collect_output()
