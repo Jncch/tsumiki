@@ -1,0 +1,25 @@
+# Phase 9f: marketing_post の対話履歴 seed.
+# experiments/run_phase9f_open_ended.py がこの YAML から scripted dialog を再生し
+# EvaluatorDraft を組み立てる. 各 Q ID は src/tsumiki/knowledge/schemas/dialog_questions/_common/ 参照.
+
+# Stage 1: TaskSpec 確定 (goal.yaml と整合)
+raw_goal: "ビーガン向けプロテインバーの 9 月発売を Instagram で訴求したい"
+task_class: generate
+output_kind: open
+input_modality: free_text
+domain: marketing_post
+input_roles_csv: "intent_text:intent"
+outputs_csv: "post_text:instagram_post_v1"
+knowledge_catalog_path: "src/tsumiki/knowledge/skills/marketing_post"
+
+# Stage 2: 評価軸選択
+selected_dimensions: "char_limit,keyword_inclusion"
+
+# Stage 3: 各軸パラメータ + 重み + 厳しさ + 確認
+char_limit__min_chars: "80"
+char_limit__max_chars: "500"
+keyword_inclusion__required_keywords: "新発売,ビーガン"
+keyword_inclusion__forbidden_keywords: "最高,絶対,世界一"
+weights_mode: "equal"
+strictness: "balanced"
+evaluator_draft_confirm: "yes"

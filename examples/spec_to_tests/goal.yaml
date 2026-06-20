@@ -1,0 +1,22 @@
+# Phase 9f: spec_to_tests (仕様書 → テストケース) example の TaskSpec.
+
+raw_goal: "REST API 仕様書から Given/When/Then 形式のテストケースを起こしたい"
+task_class: generate
+output_kind: semi_open
+input_modality: doc
+domain: spec_to_tests
+
+input_roles:
+  - name: spec_doc
+    formats: [md, txt]
+    role: target
+    description: 機能仕様書テキスト本体
+
+outputs:
+  - name: test_cases
+    schema_id: bdd_test_case_v1
+    description: Given/When/Then 形式のテストケース列
+
+knowledge:
+  source_type: existing
+  catalog_path: src/tsumiki/knowledge/skills/spec_to_tests

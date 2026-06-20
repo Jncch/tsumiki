@@ -1,0 +1,26 @@
+# Phase 9f: meeting_summary (議事録要約) example の TaskSpec スナップショット.
+
+raw_goal: "営業会議の議事録から決定事項とアクションアイテムを抽出して要約したい"
+task_class: summarize
+output_kind: semi_open
+input_modality: mixed
+domain: meeting_summary
+
+input_roles:
+  - name: transcript
+    formats: [md, txt]
+    role: target
+    description: 議事録テキスト本体
+  - name: focus_hint
+    formats: [txt]
+    role: focus
+    description: 「決定事項とアクション」など、要約の重点を指定する短文
+
+outputs:
+  - name: summary
+    schema_id: meeting_summary_v1
+    description: "議事録要約 (構成: 議題 / 決定事項 / 未決事項 / アクション)"
+
+knowledge:
+  source_type: existing
+  catalog_path: src/tsumiki/knowledge/skills/meeting_summary

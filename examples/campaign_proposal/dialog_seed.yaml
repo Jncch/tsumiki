@@ -1,0 +1,20 @@
+# Phase 9f: campaign_proposal の対話履歴 seed.
+
+raw_goal: "9 月決算月の販促キャンペーンを考えたい (飲食店向け)"
+task_class: compose
+output_kind: open
+input_modality: none
+domain: marketing_campaign
+input_roles_csv: ""
+outputs_csv: "campaign_plan:campaign_plan_v1"
+knowledge_catalog_path: "src/tsumiki/knowledge/skills/marketing_campaign"
+
+selected_dimensions: "char_limit,keyword_inclusion"
+
+char_limit__min_chars: "200"
+char_limit__max_chars: "1000"
+keyword_inclusion__required_keywords: "キャンペーン,対象,期間"
+keyword_inclusion__forbidden_keywords: "なんとなく,大体"
+weights_mode: "equal"
+strictness: "balanced"
+evaluator_draft_confirm: "yes"

@@ -1,0 +1,19 @@
+# Phase 9f: campaign_proposal (販促キャンペーン案) example の TaskSpec.
+# input_modality=none: 入力データなし、目的だけから生成.
+
+raw_goal: "9 月決算月の販促キャンペーンを考えたい (飲食店向け)"
+task_class: compose
+output_kind: open
+input_modality: none
+domain: marketing_campaign
+
+input_roles: []
+
+outputs:
+  - name: campaign_plan
+    schema_id: campaign_plan_v1
+    description: 販促キャンペーン案 (名前/目的/対象/施策/期間/KPI)
+
+knowledge:
+  source_type: existing
+  catalog_path: src/tsumiki/knowledge/skills/marketing_campaign

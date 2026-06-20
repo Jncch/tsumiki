@@ -1,0 +1,20 @@
+# Phase 9f: meeting_summary の対話履歴 seed.
+
+raw_goal: "営業会議の議事録から決定事項とアクションアイテムを抽出して要約したい"
+task_class: summarize
+output_kind: semi_open
+input_modality: mixed
+domain: meeting_summary
+input_roles_csv: "transcript:target,focus_hint:focus"
+outputs_csv: "summary:meeting_summary_v1"
+knowledge_catalog_path: "src/tsumiki/knowledge/skills/meeting_summary"
+
+selected_dimensions: "char_limit,keyword_inclusion"
+
+char_limit__min_chars: "200"
+char_limit__max_chars: "800"
+keyword_inclusion__required_keywords: "決定事項,アクション"
+keyword_inclusion__forbidden_keywords: "適宜,随時"
+weights_mode: "equal"
+strictness: "balanced"
+evaluator_draft_confirm: "yes"

@@ -1,0 +1,20 @@
+# Phase 9f: spec_to_tests の対話履歴 seed.
+
+raw_goal: "REST API 仕様書から Given/When/Then 形式のテストケースを起こしたい"
+task_class: generate
+output_kind: semi_open
+input_modality: doc
+domain: spec_to_tests
+input_roles_csv: "spec_doc:target"
+outputs_csv: "test_cases:bdd_test_case_v1"
+knowledge_catalog_path: "src/tsumiki/knowledge/skills/spec_to_tests"
+
+selected_dimensions: "char_limit,keyword_inclusion"
+
+char_limit__min_chars: "100"
+char_limit__max_chars: "1500"
+keyword_inclusion__required_keywords: "Given,When,Then"
+keyword_inclusion__forbidden_keywords: "TODO,FIXME"
+weights_mode: "equal"
+strictness: "balanced"
+evaluator_draft_confirm: "yes"

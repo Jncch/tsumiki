@@ -1,0 +1,23 @@
+# Phase 9f: marketing_post (広報原稿生成) example の TaskSpec スナップショット.
+# experiments/run_phase9f_open_ended.py がこの YAML を読んで E2EConfig を組み立てる.
+
+raw_goal: "ビーガン向けプロテインバーの 9 月発売を Instagram で訴求したい"
+task_class: generate
+output_kind: open
+input_modality: free_text
+domain: marketing_post
+
+input_roles:
+  - name: intent_text
+    formats: [txt]
+    role: intent
+    description: 発売情報や訴求ポイントを記述した意図文
+
+outputs:
+  - name: post_text
+    schema_id: instagram_post_v1
+    description: Instagram 投稿用の本文
+
+knowledge:
+  source_type: existing
+  catalog_path: src/tsumiki/knowledge/skills/marketing_post
