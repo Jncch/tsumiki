@@ -63,7 +63,59 @@ published: false
 
 ### 1.1 tsumiki が組み立てた「土俵」の全体像
 
-本稿で扱う tsumiki のスタックを 1 枚にすると次の構造です。Phase 5c 〜 7 のコア層 + Phase 9 で追加した対話層 + dispatcher (閉じた / 開放) まで統合した形です。後の章で各層を順に説明していきます。
+リポジトリ名 **tsumiki** は「積み木」の意です。再利用可能な部品 (ブロック) を **箱から取り出して** タスクごとに **組み立てる** というメタファをそのままコードに落とした、というのが設計の核です。
+
+```mermaid
+flowchart LR
+  subgraph Box["[再利用可能な部品箱] tsumiki package"]
+    direction TB
+    KBlock["<b>知識ブロック</b><br/>Agent Skills<br/>NDA / ISO27001 /<br/>marketing_post /<br/>meeting_summary /<br/>spec_to_tests /<br/>marketing_campaign / ..."]
+    EBlock["<b>評価ブロック</b><br/>EvaluatorSpec<br/>lookup / 対話 /<br/>generator (β)"]
+    PBlock["<b>ポリシーブロック</b><br/>Phase 2 baseline /<br/>AgentSquare 4 module<br/>(Planning / Reasoning /<br/>ToolUse / Memory)"]
+    LBlock["<b>プロバイダブロック</b><br/>openai_compatible<br/>(ollama / OpenAI /<br/>Anthropic / Gemini /<br/>OpenRouter) /<br/>azure_openai"]
+  end
+
+  subgraph Built["[組み立て品] タスクごとのエージェント"]
+    direction TB
+    A1["<b>NDA レビュー Agent</b><br/>(閉じた / paired_diff)<br/>NDA 知識 + lookup +<br/>Phase 2 baseline +<br/>任意プロバイダ"]
+    A2["<b>広報原稿 Agent</b><br/>(開放 / score_diff)<br/>marketing 知識 +<br/>対話評価 +<br/>開放 runner + 任意プロバイダ"]
+    A3["<b>議事録要約 Agent</b><br/>(開放 / score_diff)<br/>meeting 知識 +<br/>対話評価 +<br/>開放 runner + 任意プロバイダ"]
+    A4["<b>...あなたのユースケース...</b><br/>新しい knowledge を足し、<br/>対話で評価器を作るだけ"]
+  end
+
+  KBlock -.再利用.-> A1
+  KBlock -.再利用.-> A2
+  KBlock -.再利用.-> A3
+  KBlock -.新規追加.-> A4
+  EBlock -.再利用.-> A1
+  EBlock -.再利用.-> A2
+  EBlock -.再利用.-> A3
+  EBlock -.再利用.-> A4
+  PBlock -.再利用.-> A1
+  PBlock -.再利用.-> A2
+  PBlock -.再利用.-> A4
+  LBlock -.再利用.-> A1
+  LBlock -.再利用.-> A2
+  LBlock -.再利用.-> A3
+  LBlock -.再利用.-> A4
+
+  style Box fill:#fff4e1
+  style Built fill:#e8f5e8
+  style KBlock fill:#e8f0ff,stroke:#0066cc
+  style EBlock fill:#ffe8d6,stroke:#cc6600
+  style PBlock fill:#e8d6ff,stroke:#6600cc
+  style LBlock fill:#d6f0ff,stroke:#0099cc
+  style A1 fill:#e8f5e8
+  style A2 fill:#d6f0ff
+  style A3 fill:#d6f0ff
+  style A4 fill:#fffacd,stroke:#cc9900,stroke-dasharray:5 5
+```
+
+左の「部品箱」に積み木 (色違いの 4 種) があり、右側で「タスクごとの Agent」が箱から必要なブロックを取り出して組み立てられる、というイメージです。新しいユースケース (右下の点線) が増えても、追加するのは多くの場合 **新しい knowledge ブロック 1 つ** で、評価ブロック・ポリシーブロック・プロバイダブロックは既存をそのまま再利用できます。
+
+#### 内部のデータフロー — 同じスタックを別の角度で見る
+
+上の積み木メタファを「データフロー」の角度から書き直すと次の構造です。Phase 5c 〜 7 のコア層 + Phase 9 で追加した対話層 + dispatcher (閉じた / 開放) まで統合した形です。後の章で各層を順に説明していきます。
 
 ```mermaid
 flowchart TB
