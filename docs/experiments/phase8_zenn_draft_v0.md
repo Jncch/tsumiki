@@ -42,11 +42,11 @@ published: false
 
 「土俵」というのは、目的駆動の自然言語入力 → 構造化スキーマ → 評価器の流用判定 → 知識・ツール層のロード → ポリシー層の合成、というパイプライン全体のことです。前回はこの土俵が暗黙的に NDA 専用でしたが、本稿では **TaskSpec / EvaluatorSpec という共通骨格** を導入し、ISO27001 を 2 つめのドメインとして同じ土俵に乗せ、最後に AgentSquare の探索エンジンを薄いラッパでつなぎます。
 
-具体的に、Agentic AI 開発でぶつかる **6 つの課題** と、tsumiki が **どう一括解決するか** を 1 枚にまとめると次の通りです。
+直感的に言うと、tsumiki は次のような変化を狙っています。
 
-![Agentic AI 開発の課題と tsumiki の解法](https://raw.githubusercontent.com/Jncch/tsumiki/main/docs/assets/zenn/tsumiki_before_after.svg)
+![これまでバラバラだった部品が、tsumiki で 1 つの塔から何にでも展開できる](https://raw.githubusercontent.com/Jncch/tsumiki/main/docs/assets/zenn/tsumiki_before_after.svg)
 
-左の「これまでの課題」(タスクごとに評価器を専用実装 / 新ドメインのたび専用 runner / 開放タスクを測れない / プロバイダ毎の SDK 直書き / LLM 文言揺れで parser 壊れる / 探索エンジンが研究用途) を、右の **tsumiki の 6 機能** で受け止める設計になっています。本稿はその設計がどう積み上がってきたかを Phase 順に解説し、最後に **閉じた N=2 (paired_diff)** と **開放 N=4 (score_diff)** の数値で検証します。
+左の状態 (タスクごとにバラバラな部品が散らばり、繋がらない) から、右の状態 (中央に 4 ブロックの塔があり、どのタスクにも展開できる) への移行が tsumiki の射程です。本稿はその移行をどう設計したかを Phase 順に解説し、最後に **閉じた N=2 (paired_diff)** と **開放 N=4 (score_diff)** の数値で検証します。
 
 ## 1. 前回の結論と残った 3 つの問い
 
