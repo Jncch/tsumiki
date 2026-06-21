@@ -63,32 +63,34 @@ published: false
 
 ### 1.1 tsumiki が組み立てた「土俵」の全体像
 
-本稿で扱う tsumiki のスタックを 1 枚にすると次の構造です。後の章で各層を順に説明していきます。
+本稿で扱う tsumiki のスタックを 1 枚にすると次の構造です。Phase 5c 〜 7 のコア層 + Phase 9 で追加した対話層 + dispatcher (閉じた / 開放) まで統合した形です。後の章で各層を順に説明していきます。
 
 ```mermaid
 flowchart TB
-  subgraph Input["入力層"]
-    Goal["自然言語の目的<br/>例: NDA をチェックして問題条項を是正したい"]
-    Doc["ドキュメント"]
+  subgraph Input["入力層 (Phase 9 で 5 モダリティ対応)"]
+    Goal["自然言語の目的"]
+    Body["ドキュメント / 自然言語 / 構造化データ / 混在 / 入力なし"]
   end
 
-  subgraph GoalLayer["目的・評価層 (Phase 5c)"]
-    Parser["input parser<br/>(GoalParser)"]
-    TaskSpec["TaskSpec<br/>domain / task_class / inputs / outputs"]
-    Lookup["評価器 lookup"]
-    GenPath["評価器 generator + verify (β)"]
-    EvalSpec["EvaluatorSpec"]
+  subgraph GoalLayer["目的・評価層 (Phase 5c + 9)"]
+    Parser["input parser<br/>(Phase 5c, 閉じたタスクの自動経路)"]
+    Dialog["対話 REPL Q1〜Q13<br/>(Phase 9b/9c, 構造化質問 + LLM 補助)"]
+    TaskSpec["TaskSpec<br/>task_class × output_kind × input_modality"]
+    Lookup["評価器 lookup<br/>(既存承認済を流用)"]
+    GenPath["評価器 generator + verify<br/>(β, 閉じたタスク向け)"]
+    Draft["EvaluatorDraft<br/>(Phase 9c, 対話で組み立て)"]
+    EvalSpec["EvaluatorSpec<br/>(approved_by 必須, CLAUDE.md §9 gate)"]
   end
 
   subgraph Knowledge["知識層 (Agent Skills 形式)"]
-    NDA["NDA<br/>9 NG patterns"]
-    ISO["ISO27001<br/>9 audit findings"]
+    Closed["NDA / ISO27001<br/>(閉じた)"]
+    Open["marketing_post / meeting_summary /<br/>spec_to_tests / marketing_campaign<br/>(Phase 9 開放 4 ドメイン)"]
   end
 
   subgraph Policy["ポリシー層 (Phase 7)"]
-    Phase2["Phase 2 baseline<br/>detect + modify"]
-    Compose["policy/compose<br/>薄いラッパ"]
-    AS["AgentSquare partial vendoring<br/>(Apache-2.0)"]
+    Phase2["閉じたタスク baseline<br/>(detect + modify, Phase 2)"]
+    Compose["policy/compose 薄いラッパ"]
+    AS["AgentSquare partial vendoring<br/>(Apache-2.0, β)"]
   end
 
   subgraph Provider["LLM プロバイダ非依存設定層 (CLAUDE.md §3)"]
@@ -96,33 +98,55 @@ flowchart TB
     Azure["azure_openai<br/>Azure OpenAI Service"]
   end
 
-  Runner["runner/e2e.py<br/>E2E ランナ"]
+  subgraph RunnerLayer["E2E runner (Phase 5c + 9 dispatcher)"]
+    Dispatcher{"output_kind で<br/>分岐"}
+    Closed_Path["閉じた経路<br/>→ paired_diff"]
+    Open_Path["開放経路<br/>(Phase 9e)<br/>→ score_diff"]
+  end
+
   MLflow[("MLflow tracking")]
 
-  Goal --> Parser --> TaskSpec
+  Goal --> Parser
+  Goal --> Dialog
+  Parser --> TaskSpec
+  Dialog --> TaskSpec
+
   TaskSpec --> Lookup
   TaskSpec --> GenPath
+  TaskSpec --> Draft
+
   Lookup --> EvalSpec
   GenPath --> EvalSpec
+  Draft --> EvalSpec
 
-  EvalSpec --> Runner
-  Knowledge --> Runner
-  Doc --> Runner
-  Policy --> Runner
+  Body --> Dispatcher
+  EvalSpec --> Dispatcher
+  Knowledge --> Dispatcher
+  Policy --> Dispatcher
   Compose --> AS
 
-  Runner --> Provider
-  Runner --> MLflow
+  Dispatcher -->|closed| Closed_Path
+  Dispatcher -->|semi_open / open| Open_Path
+
+  Closed_Path --> Provider
+  Open_Path --> Provider
+  Closed_Path --> MLflow
+  Open_Path --> MLflow
 
   style Knowledge fill:#e8f5e8
   style GoalLayer fill:#fff4e1
   style Policy fill:#e8f0ff
   style Provider fill:#f0e8ff
+  style RunnerLayer fill:#ffe8d6
+  style Dialog fill:#d6f0ff,stroke:#0066cc,stroke-width:2px
+  style Draft fill:#d6f0ff,stroke:#0066cc,stroke-width:2px
+  style Open fill:#d6f0ff,stroke:#0066cc,stroke-width:2px
+  style Open_Path fill:#d6f0ff,stroke:#0066cc,stroke-width:2px
 ```
 
-「土俵」とはこの図全体のことです。**自然言語の目的を受け取り、適切な評価器と知識を選び、ポリシー (どう解くか) と LLM プロバイダを差し替えながら同じ runner で実行する** という構造を 1 ヶ月で組み上げました。
+「土俵」とはこの図全体のことです。**自然言語の目的を受け取り、適切な評価器と知識を選び、ポリシー (どう解くか) と LLM プロバイダを差し替えながら、同じ runner が `output_kind` で「閉じた / 開放」を機械的に分けて実行する** という構造を 1 ヶ月で組み上げました。
 
-※ Phase 9 で **対話層** を追加し、評価器の中身を構造化対話で組み立てる経路を新設しています。詳細と Mermaid 図は **§5.5 補遺** を参照してください。
+**Phase 9 で青枠で囲った 4 ノード** (対話 REPL / EvaluatorDraft / 開放 4 ドメイン知識 / 開放経路) が今回の追加分です。閉じたタスク経路 (parser → lookup/generator → paired_diff) は無傷で動きます。Phase 9 の対話 6 stage の詳細図は **§5.5 補遺** に別途置きました。
 
 ## 2. 本稿の仮説と検証設計
 
