@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 600" font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue',Arial,sans-serif">
+  <defs>
+    <marker id="arrow_baf" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="14" markerHeight="14" orient="auto">
+      <polygon points="0,0 10,5 0,10" fill="#444"/>
+    </marker>
+    <filter id="cardShadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="1" dy="2" stdDeviation="1.5" flood-color="#000" flood-opacity="0.15"/>
+    </filter>
+  </defs>
+
+  <!-- 背景 -->
+  <rect width="1000" height="600" fill="#FFFFFF"/>
+
+  <!-- タイトル -->
+  <text x="500" y="38" font-size="22" font-weight="700" text-anchor="middle" fill="#222">Agentic AI 開発の課題と tsumiki の解法</text>
+  <text x="500" y="60" font-size="13" text-anchor="middle" fill="#777">「タスクごとに作り直し」をやめ、「再利用可能な部品で組み立てる」フレームへ</text>
+
+  <!-- 左: これまでの課題 -->
+  <g transform="translate(30, 85)">
+    <rect width="395" height="425" fill="#FAF2F2" stroke="#B86B6B" stroke-width="1.5" rx="12"/>
+    <text x="197" y="32" font-size="15" font-weight="700" text-anchor="middle" fill="#7A3030">[ これまでの課題 ]</text>
+    <text x="197" y="50" font-size="11" text-anchor="middle" fill="#A0686B">Agentic AI 開発でぶつかる問題</text>
+
+    <g transform="translate(20, 70)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#B86B6B" stroke-width="1" rx="6"/>
+      <text x="14" y="22" font-size="13" font-weight="700" fill="#7A3030">[1] タスクごとに評価器を専用実装</text>
+      <text x="14" y="40" font-size="11" fill="#555">流用できず、新タスクのたびに評価ロジックをゼロから書く</text>
+    </g>
+
+    <g transform="translate(20, 130)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#B86B6B" stroke-width="1" rx="6"/>
+      <text x="14" y="22" font-size="13" font-weight="700" fill="#7A3030">[2] 新ドメインのたびに専用 runner</text>
+      <text x="14" y="40" font-size="11" fill="#555">NDA / 議事録 / 広報 / 仕様書 などで毎回別 runner を書く</text>
+    </g>
+
+    <g transform="translate(20, 190)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#B86B6B" stroke-width="1" rx="6"/>
+      <text x="14" y="22" font-size="13" font-weight="700" fill="#7A3030">[3] 開放タスク (生成 / 要約) を測れない</text>
+      <text x="14" y="40" font-size="11" fill="#555">閉じたタスク用の評価方法では「広報原稿の良し悪し」を測れない</text>
+    </g>
+
+    <g transform="translate(20, 250)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#B86B6B" stroke-width="1" rx="6"/>
+      <text x="14" y="22" font-size="13" font-weight="700" fill="#7A3030">[4] LLM プロバイダごとに SDK 直呼び</text>
+      <text x="14" y="40" font-size="11" fill="#555">ollama / OpenAI / Azure を切替するたびにコード本体を書き換える</text>
+    </g>
+
+    <g transform="translate(20, 310)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#B86B6B" stroke-width="1" rx="6"/>
+      <text x="14" y="22" font-size="13" font-weight="700" fill="#7A3030">[5] LLM の文言揺れで parser が壊れる</text>
+      <text x="14" y="40" font-size="11" fill="#555">同じ目的でもモデルによって `inputs` 解釈が変わり、lookup が miss する</text>
+    </g>
+
+    <g transform="translate(20, 370)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#B86B6B" stroke-width="1" rx="6"/>
+      <text x="14" y="22" font-size="13" font-weight="700" fill="#7A3030">[6] 探索エンジンが研究用途で実業務に乗らない</text>
+      <text x="14" y="40" font-size="11" fill="#555">AgentSquare 等は alfworld / webshop 等のベンチに依存し、業務に転用しにくい</text>
+    </g>
+  </g>
+
+  <!-- 中央矢印 + tsumiki ラベル -->
+  <g transform="translate(440, 295)">
+    <rect x="-20" y="-32" width="120" height="58" fill="#FFF4D6" stroke="#CC9900" stroke-width="2" rx="10"/>
+    <text x="40" y="-10" font-size="18" font-weight="700" text-anchor="middle" fill="#7A5500">tsumiki</text>
+    <text x="40" y="10" font-size="10" text-anchor="middle" fill="#7A5500">で 6 つを一括解決</text>
+    <line x1="0" y1="40" x2="80" y2="40" stroke="#444" stroke-width="3" marker-end="url(#arrow_baf)"/>
+  </g>
+
+  <!-- 右: tsumiki が可能にする -->
+  <g transform="translate(575, 85)">
+    <rect width="395" height="425" fill="#F0F8F0" stroke="#5BA010" stroke-width="1.5" rx="12"/>
+    <text x="197" y="32" font-size="15" font-weight="700" text-anchor="middle" fill="#3B7008">[ tsumiki が可能にする ]</text>
+    <text x="197" y="50" font-size="11" text-anchor="middle" fill="#5BA010">再利用可能な部品の組み立てフレーム</text>
+
+    <g transform="translate(20, 70)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#4A90E2" stroke-width="1.5" rx="6"/>
+      <rect x="0" y="0" width="6" height="50" fill="#4A90E2" rx="6 0 0 6"/>
+      <text x="18" y="22" font-size="13" font-weight="700" fill="#1F4F8A">[1] 評価器を 3 経路で組み立て + 再利用</text>
+      <text x="18" y="40" font-size="11" fill="#555">lookup (既存承認済) / 対話 (Phase 9) / generator (β)</text>
+    </g>
+
+    <g transform="translate(20, 130)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#F5A623" stroke-width="1.5" rx="6"/>
+      <rect x="0" y="0" width="6" height="50" fill="#F5A623" rx="6 0 0 6"/>
+      <text x="18" y="22" font-size="13" font-weight="700" fill="#9A6300">[2] 1 つの runner で N ドメイン</text>
+      <text x="18" y="40" font-size="11" fill="#555">NDA / ISO27001 / 広報 / 議事録 / 仕様書 / キャンペーン</text>
+    </g>
+
+    <g transform="translate(20, 190)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#9013FE" stroke-width="1.5" rx="6"/>
+      <rect x="0" y="0" width="6" height="50" fill="#9013FE" rx="6 0 0 6"/>
+      <text x="18" y="22" font-size="13" font-weight="700" fill="#5A0AB0">[3] 閉じた + 開放を統一 dispatcher</text>
+      <text x="18" y="40" font-size="11" fill="#555">paired_diff / score_diff を output_kind で機械的に分岐</text>
+    </g>
+
+    <g transform="translate(20, 250)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#7ED321" stroke-width="1.5" rx="6"/>
+      <rect x="0" y="0" width="6" height="50" fill="#7ED321" rx="6 0 0 6"/>
+      <text x="18" y="22" font-size="13" font-weight="700" fill="#4A8410">[4] プロバイダ非依存設定層</text>
+      <text x="18" y="40" font-size="11" fill="#555">ollama / OpenAI / Azure / Anthropic / Gemini / OpenRouter</text>
+    </g>
+
+    <g transform="translate(20, 310)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#4A90E2" stroke-width="1.5" rx="6"/>
+      <rect x="0" y="0" width="6" height="50" fill="#4A90E2" rx="6 0 0 6"/>
+      <text x="18" y="22" font-size="13" font-weight="700" fill="#1F4F8A">[5] 構造化対話 Q1〜Q13 で揺れ排除</text>
+      <text x="18" y="40" font-size="11" fill="#555">LLM 任せをやめ、YAML 外部化した固定 Q で再現性確保</text>
+    </g>
+
+    <g transform="translate(20, 370)" filter="url(#cardShadow)">
+      <rect x="0" y="0" width="355" height="50" fill="#FFFFFF" stroke="#F5A623" stroke-width="1.5" rx="6"/>
+      <rect x="0" y="0" width="6" height="50" fill="#F5A623" rx="6 0 0 6"/>
+      <text x="18" y="22" font-size="13" font-weight="700" fill="#9A6300">[6] AgentSquare partial vendoring + DI</text>
+      <text x="18" y="40" font-size="11" fill="#555">alfworld 依存を剥がし ChatFn / benchmark_fn を差し替え可能に</text>
+    </g>
+  </g>
+
+  <!-- 下部: 主要結果 -->
+  <g transform="translate(30, 525)">
+    <rect width="940" height="58" fill="#FFF8E7" stroke="#D4A949" stroke-width="1.5" rx="10"/>
+    <text x="470" y="22" font-size="12" font-weight="700" text-anchor="middle" fill="#7A5500">主要結果 (本稿 + Phase 9 まで)</text>
+    <text x="470" y="42" font-size="12" text-anchor="middle" fill="#444">
+      <tspan font-weight="700">閉じた N=2:</tspan> NDA paired_diff +0.261 / ISO27001 +0.029
+      <tspan dx="14"></tspan>
+      <tspan font-weight="700">開放 N=4 (Phase 9):</tspan> score_diff 平均 +0.407
+      <tspan dx="14"></tspan>
+      <tspan font-weight="700">416 unit test PASS</tspan>
+      <tspan dx="14"></tspan>
+      <tspan font-weight="700">Apache-2.0 OSS</tspan>
+    </text>
+  </g>
+</svg>
